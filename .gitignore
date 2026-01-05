@@ -1,0 +1,3 @@
+models/ag_news/bertopic_model_ag_news_all-MiniLM-L6-v2_20240508-205323.pkl
+models/SetFit_20_newsgroups/bertopic_model_SetFit_20_newsgroups_all-MiniLM-L6-v2_20240508-213524.pkl
+models/*

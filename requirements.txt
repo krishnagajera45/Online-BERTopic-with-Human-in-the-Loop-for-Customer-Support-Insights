@@ -1,0 +1,7 @@
+streamlit
+pandas
+bertopic
+datasets
+numpy
+numba
+altair<5
