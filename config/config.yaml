@@ -1,0 +1,51 @@
+data:
+  raw_csv_path: "data/raw/twcs.csv"
+  processed_parquet_dir: "data/processed/"
+  sample_csv_path: "data/sample/twcs_sample.csv"
+  timestamp_column: "created_at"
+  text_column: "text"
+  inbound_column: "inbound"
+
+model:
+  embedding_model: "all-MiniLM-L6-v2"
+  min_cluster_size: 3  # Reduced for small datasets
+  min_samples: 2  # Reduced for small datasets
+  umap_n_components: 5
+  umap_n_neighbors: 5  # Reduced for small datasets
+  umap_min_dist: 0.0
+  umap_metric: "cosine"
+  hdbscan_metric: "euclidean"
+  min_df: 1  # Allow all words for small datasets
+  max_df: 1.0  # Allow all words for small datasets
+  ngram_range: [1, 2]
+
+storage:
+  topics_metadata_path: "outputs/topics/topics_metadata.json"
+  doc_assignments_path: "outputs/assignments/doc_assignments.csv"
+  alerts_path: "outputs/alerts/drift_alerts.csv"
+  audit_log_path: "outputs/audit/hitl_audit_log.csv"
+  current_model_path: "models/current/bertopic_model.pkl"
+  previous_model_path: "models/previous/bertopic_model.pkl"
+  state_file: "data/state/processing_state.json"
+  
+mlflow:
+  tracking_uri: "file:./mlruns"
+  experiment_name: "twcs_topic_modeling"
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:8501"
+    - "http://127.0.0.1:8501"
+
+dashboard:
+  host: "0.0.0.0"
+  port: 8501
+  api_base_url: "http://localhost:8000"
+
+scheduler:
+  batch_size: 5000
+  window_days: 1
+  schedule_cron: "0 2 * * *"  # Daily at 2 AM
+
