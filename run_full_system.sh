@@ -143,6 +143,21 @@ case $REPLY in
         sleep 2
         echo -e "${GREEN}✓ Prefect agent ready!${NC}"
         echo ""
+
+        # Start MLflow server for experiment tracking
+        echo -e "${BLUE}Step 3/4: Starting MLflow server...${NC}"
+        mlflow server \
+            --backend-store-uri mlruns \
+            --default-artifact-root mlruns \
+            --host 127.0.0.1 \
+            --port 5000 \
+            > logs/mlflow.log 2>&1 &
+        MLFLOW_PID=$!
+        echo "MLflow server started (PID: $MLFLOW_PID)"
+        sleep 3
+        echo -e "${GREEN}✓ MLflow server ready!${NC}"
+        echo "   UI: http://127.0.0.1:5000"
+        echo ""
         
         # Save PIDs
         mkdir -p .prefect
@@ -150,7 +165,7 @@ case $REPLY in
         echo $PREFECT_AGENT_PID > .prefect/agent.pid
         
         # Start API
-        echo -e "${BLUE}Step 3/3: Starting API & Dashboard...${NC}"
+        echo -e "${BLUE}Step 4/4: Starting API & Dashboard...${NC}"
         python -m src.api.main > logs/api.log 2>&1 &
         API_PID=$!
         echo "API started (PID: $API_PID)"
@@ -165,6 +180,7 @@ case $REPLY in
         echo ""
         echo "Access Points:"
         echo "  📊 Prefect UI:  http://127.0.0.1:4200"
+        echo "  📒 MLflow UI:   http://127.0.0.1:5000"
         echo "  🔧 API:         http://localhost:8000"
         echo "  📝 API Docs:    http://localhost:8000/docs"
         echo "  📈 Dashboard:   http://localhost:8501"
@@ -172,6 +188,7 @@ case $REPLY in
         echo "Logs:"
         echo "  - Prefect Server: logs/prefect_server.log"
         echo "  - Prefect Agent:  logs/prefect_agent.log"
+        echo "  - MLflow Server:  logs/mlflow.log"
         echo "  - API:            logs/api.log"
         echo ""
         echo "To deploy flows: ./scripts/deploy_flows.sh"
@@ -189,6 +206,7 @@ case $REPLY in
         kill $API_PID 2>/dev/null || true
         kill $PREFECT_AGENT_PID 2>/dev/null || true
         kill $PREFECT_SERVER_PID 2>/dev/null || true
+        kill $MLFLOW_PID 2>/dev/null || true
         rm -rf .prefect
         echo "All services stopped."
         ;;
