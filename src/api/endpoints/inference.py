@@ -1,0 +1,65 @@
+"""Inference API endpoints."""
+from fastapi import APIRouter, HTTPException
+from pathlib import Path
+from src.api.models.requests import InferRequest
+from src.api.models.responses import InferResponse
+from src.modeling import BERTopicOnlineWrapper
+from src.utils import setup_logger, clean_text, load_config
+from src.storage import StorageManager
+
+router = APIRouter()
+logger = setup_logger(__name__)
+config = load_config()
+storage = StorageManager(config)
+model_wrapper = BERTopicOnlineWrapper(config)
+
+
+@router.post("", response_model=InferResponse)
+async def infer_topic(request: InferRequest):
+    """Predict topic for input text."""
+    try:
+        # Preprocess text
+        cleaned_text = clean_text(request.text)
+        
+        if not cleaned_text:
+            raise HTTPException(status_code=400, detail="Text is empty after cleaning")
+        
+        # Load current model
+        model_path = Path(config.storage.current_model_path)
+        if not model_path.exists():
+            raise HTTPException(status_code=404, detail="No trained model found")
+        
+        model = model_wrapper.load_model(str(model_path))
+        
+        # Transform
+        topics, probs = model.transform([cleaned_text])
+        topic_id = int(topics[0])
+        
+        # Get topic info
+        topic_words = model.get_topic(topic_id)
+        top_words = [word for word, _ in topic_words[:10]] if topic_words else []
+        
+        # Get topic label from metadata
+        topics_metadata = storage.load_topics_metadata()
+        topic_label = f"Topic {topic_id}"
+        for topic in topics_metadata:
+            if topic['topic_id'] == topic_id:
+                topic_label = topic.get('custom_label', topic_label)
+                break
+        
+        # Calculate confidence
+        confidence = float(probs[0].max()) if len(probs[0]) > 0 else 0.0
+        
+        return InferResponse(
+            topic_id=topic_id,
+            topic_label=topic_label,
+            confidence=confidence,
+            top_words=top_words
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in inference: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
