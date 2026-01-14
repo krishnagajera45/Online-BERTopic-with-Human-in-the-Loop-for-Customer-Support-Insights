@@ -1,3 +1,76 @@
-models/ag_news/bertopic_model_ag_news_all-MiniLM-L6-v2_20240508-205323.pkl
-models/SetFit_20_newsgroups/bertopic_model_SetFit_20_newsgroups_all-MiniLM-L6-v2_20240508-213524.pkl
-models/*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Data
+data/raw/*.csv
+data/processed/*.parquet
+data/sample/*.csv
+!data/sample/.gitkeep
+
+# Models
+models/current/*.pkl
+models/previous/*.pkl
+models/ag_news/
+models/SetFit_20_newsgroups/
+mlruns/
+
+# Outputs
+outputs/topics/*.json
+outputs/assignments/*.csv
+outputs/alerts/*.csv
+outputs/audit/*.csv
+data/state/*.json
+
+# Logs
+logs/*.log
+*.log
+
+# Prefect
+.prefect/
+.prefect*.db
+.prefect*.db-shm
+.prefect*.db-wal
+data/prefect/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# System
+.DS_Store
+Thumbs.db
+
+
+
+docker/
+tests/
+*.md
+!README.md
+
+docker-compose.yml
