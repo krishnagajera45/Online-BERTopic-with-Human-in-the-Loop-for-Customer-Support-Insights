@@ -18,17 +18,23 @@ model_wrapper = BERTopicOnlineWrapper(config)
 async def infer_topic(request: InferRequest):
     """Predict topic for input text."""
     try:
+        logger.info(f"INFERENCE: Received text ({len(request.text)} chars)")
+        logger.debug(f"INFERENCE: Text preview: {request.text[:100]}...")
+        
         # Preprocess text
         cleaned_text = clean_text(request.text)
         
         if not cleaned_text:
+            logger.warning("INFERENCE: Text is empty after cleaning")
             raise HTTPException(status_code=400, detail="Text is empty after cleaning")
         
         # Load current model
         model_path = Path(config.storage.current_model_path)
         if not model_path.exists():
+            logger.error("INFERENCE: No trained model found")
             raise HTTPException(status_code=404, detail="No trained model found")
         
+        logger.debug("INFERENCE: Loading model for transform")
         model = model_wrapper.load_model(str(model_path))
         
         # Transform
@@ -49,6 +55,8 @@ async def infer_topic(request: InferRequest):
         
         # Calculate confidence
         confidence = float(probs[0].max()) if len(probs[0]) > 0 else 0.0
+        
+        logger.info(f"INFERENCE: Result - Topic {topic_id} ({topic_label}), Confidence: {confidence:.3f}")
         
         return InferResponse(
             topic_id=topic_id,

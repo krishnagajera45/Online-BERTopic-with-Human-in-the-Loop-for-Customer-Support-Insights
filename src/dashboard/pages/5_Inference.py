@@ -57,10 +57,10 @@ input_text = st.text_area(
 col1, col2, col3 = st.columns([1, 1, 2])
 
 with col1:
-    predict_button = st.button("🔮 Predict Topic", type="primary", use_container_width=True)
+    predict_button = st.button("🔮 Predict Topic", type="primary", width='stretch')
 
 with col2:
-    clear_button = st.button("🗑️ Clear", use_container_width=True)
+    clear_button = st.button("🗑️ Clear", width='stretch')
 
 if clear_button:
     st.rerun()

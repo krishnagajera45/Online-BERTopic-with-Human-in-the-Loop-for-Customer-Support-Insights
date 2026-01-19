@@ -18,9 +18,11 @@ async def get_trends(
 ):
     """Get topic counts across time windows."""
     try:
+        logger.debug(f"Fetching trends: topic_id={topic_id}, start={start_date}, end={end_date}")
         assignments = storage.load_doc_assignments(topic_id=topic_id)
         
         if len(assignments) == 0:
+            logger.info("No assignments found for trend calculation")
             return []
         
         # Group by batch_id and topic_id
@@ -35,6 +37,7 @@ async def get_trends(
                 how='left'
             )
         
+        logger.info(f"Retrieved {len(trends)} trend data points")
         return trends.to_dict('records')
     
     except Exception as e:

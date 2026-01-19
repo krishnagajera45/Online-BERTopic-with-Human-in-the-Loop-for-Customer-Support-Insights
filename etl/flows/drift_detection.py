@@ -63,6 +63,7 @@ def drift_detection_flow(
     
     logger.info("Drift detection flow completed")
     
+    drift_metrics["alerts"] = alerts
     return drift_metrics
 
 

@@ -37,7 +37,7 @@ def calculate_drift_task(
     previous_model = model_wrapper.load_model(config.storage.previous_model_path)
     
     # Calculate drift
-    drift_metrics, alerts = detector.run_full_drift_detection(
+    drift_metrics = detector.run_full_drift_detection(
         current_model=current_model,
         previous_model=previous_model,
         current_docs=current_docs[:1000],  # Sample for performance
@@ -45,7 +45,7 @@ def calculate_drift_task(
         window_start=window_start
     )
     
-    logger.info(f"Drift detection complete: {len(alerts)} alerts generated")
+    logger.info(f"Drift detection complete. Drift metrics: {drift_metrics}")
     return drift_metrics
 
 

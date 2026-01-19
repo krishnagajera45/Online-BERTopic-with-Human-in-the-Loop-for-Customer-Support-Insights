@@ -127,13 +127,20 @@ def run_window_pipeline():
             
             # For drift detection, we need previous window documents
             # For simplicity, we'll skip document-based metrics in this iteration
-            drift_metrics, alerts = detector.run_full_drift_detection(
+            drift_metrics = detector.run_full_drift_detection(
                 current_model=current_model,
                 previous_model=previous_model,
                 current_docs=new_data['text_cleaned'].tolist()[:1000],  # Sample for performance
                 previous_docs=[],  # Would need previous window docs
                 window_start=start_date.strftime('%Y-%m-%d')
             )
+            
+            alerts = detector.generate_drift_alerts(
+                drift_metrics,
+                start_date.strftime('%Y-%m-%d')
+            )
+            if alerts:
+                storage.append_drift_alerts(alerts)
             
             logger.info(f"Drift detection complete: {len(alerts)} alerts generated")
             

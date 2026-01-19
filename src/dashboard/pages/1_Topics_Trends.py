@@ -52,7 +52,7 @@ try:
     
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True
     )
     
@@ -70,7 +70,7 @@ try:
         hover_data=['custom_label']
     )
     fig_dist.update_traces(marker_color='lightblue')
-    st.plotly_chart(fig_dist, use_container_width=True)
+    st.plotly_chart(fig_dist, width='stretch')
     
     st.divider()
     
@@ -92,7 +92,7 @@ try:
                 title="Topic Counts by Batch",
                 labels={'batch_id': 'Batch', 'count': 'Count', 'topic_id': 'Topic ID'}
             )
-            st.plotly_chart(fig_trends, use_container_width=True)
+            st.plotly_chart(fig_trends, width='stretch')
             
             # Topic selector for detailed view
             st.subheader("Topic-Specific Trend")
@@ -114,7 +114,7 @@ try:
                     labels={'batch_id': 'Batch', 'count': 'Count'}
                 )
                 fig_single.update_traces(marker_color='teal')
-                st.plotly_chart(fig_single, use_container_width=True)
+                st.plotly_chart(fig_single, width='stretch')
         else:
             st.info("No trend data available yet. Process more batches to see trends.")
     

@@ -7,7 +7,9 @@ This module provides the REST API for:
 - Performing inference
 - HITL topic editing
 """
-from fastapi import FastAPI
+import time
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.endpoints import topics, trends, alerts, inference, hitl, pipeline
 from src.utils import load_config, setup_logger
@@ -34,6 +36,26 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Middleware to log all API requests and responses to unified debug log."""
+    start_time = time.time()
+    
+    # Log incoming request
+    logger.info(f"REQUEST: {request.method} {request.url.path}")
+    
+    # Process request
+    response = await call_next(request)
+    
+    # Calculate duration
+    duration_ms = (time.time() - start_time) * 1000
+    
+    # Log response
+    logger.info(f"RESPONSE: {request.method} {request.url.path} - Status: {response.status_code} - Duration: {duration_ms:.2f}ms")
+    
+    return response
+
+
 # Include routers
 app.include_router(topics.router, prefix="/api/v1/topics", tags=["Topics"])
 app.include_router(trends.router, prefix="/api/v1/trends", tags=["Trends"])
@@ -56,19 +78,61 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    logger.info("Health check endpoint called")
     return {"status": "healthy"}
 
 
 if __name__ == "__main__":
     import uvicorn
+    from src.utils.logging_config import get_unified_debug_log_path
     
     logger.info(f"Starting API server on {config.api.host}:{config.api.port}")
+    
+    # Configure uvicorn to use our unified logging
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s | %(levelname)-8s | %(name)-25s | %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "unified_file": {
+                "class": "logging.FileHandler",
+                "filename": get_unified_debug_log_path(),
+                "formatter": "default",
+            },
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+            },
+        },
+        "loggers": {
+            "uvicorn": {
+                "handlers": ["unified_file", "console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "handlers": ["unified_file", "console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["unified_file", "console"],
+                "level": "INFO",
+                "propagate": False,
+            },
+        },
+    }
     
     uvicorn.run(
         "src.api.main:app",
         host=config.api.host,
         port=config.api.port,
-        reload=True,
-        log_level="info"
+        reload=False,
+        log_config=log_config,
     )
 

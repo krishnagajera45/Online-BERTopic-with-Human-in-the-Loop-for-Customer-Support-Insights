@@ -94,7 +94,11 @@ if __name__ == "__main__":
     test_docs = [
         "I need help with billing",
         "My app keeps crashing",
-        "How do I reset my password"
+        "How do I reset my password",
+        "Help me fix my RJ-45 connector issue",
+        "I have an issue in proxy/firewall in my machine",
+        "Lost internet connection",
+        "CHATGpt is not working"
     ]
     
     topics, probs = model_training_flow(

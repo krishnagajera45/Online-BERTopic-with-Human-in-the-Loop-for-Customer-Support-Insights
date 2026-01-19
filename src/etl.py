@@ -45,17 +45,21 @@ def load_twcs_data(
         
         # Parse timestamps
         if 'created_at' in df.columns:
-            df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
+            df['created_at'] = pd.to_datetime(
+                df['created_at'],
+                errors='coerce',
+                utc=True
+            )
             logger.info("Parsed 'created_at' timestamps")
         
         # Filter by date range if specified
         if start_date and 'created_at' in df.columns:
-            start_dt = pd.to_datetime(start_date)
+            start_dt = pd.to_datetime(start_date, utc=True)
             df = df[df['created_at'] >= start_dt]
             logger.info(f"Filtered data from {start_date}: {len(df)} rows remaining")
         
         if end_date and 'created_at' in df.columns:
-            end_dt = pd.to_datetime(end_date)
+            end_dt = pd.to_datetime(end_date, utc=True)
             df = df[df['created_at'] <= end_dt]
             logger.info(f"Filtered data until {end_date}: {len(df)} rows remaining")
         

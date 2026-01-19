@@ -14,11 +14,14 @@ storage = StorageManager()
 async def get_alerts(limit: int = 50):
     """Get recent drift alerts."""
     try:
+        logger.debug(f"Fetching alerts with limit={limit}")
         alerts_df = storage.load_drift_alerts(limit=limit)
         
         if len(alerts_df) == 0:
+            logger.info("No alerts found")
             return []
         
+        logger.info(f"Retrieved {len(alerts_df)} alerts")
         return alerts_df.to_dict('records')
     
     except Exception as e:
@@ -30,12 +33,16 @@ async def get_alerts(limit: int = 50):
 async def get_latest_alert():
     """Get the most recent drift alert."""
     try:
+        logger.debug("Fetching latest alert")
         alerts_df = storage.load_drift_alerts(limit=1)
         
         if len(alerts_df) == 0:
+            logger.info("No alerts found")
             raise HTTPException(status_code=404, detail="No alerts found")
         
-        return alerts_df.iloc[0].to_dict()
+        alert = alerts_df.iloc[0].to_dict()
+        logger.info(f"Latest alert: {alert.get('alert_type', 'N/A')} - {alert.get('message', 'N/A')[:50]}")
+        return alert
     
     except HTTPException:
         raise

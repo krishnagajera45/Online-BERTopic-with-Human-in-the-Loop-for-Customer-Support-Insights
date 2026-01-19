@@ -403,7 +403,7 @@ class DriftDetector:
         current_docs: List[str],
         previous_docs: List[str],
         window_start: str
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    ) -> Dict[str, Any]:
         """
         Run complete drift detection pipeline.
         
@@ -415,7 +415,7 @@ class DriftDetector:
             window_start: Window start timestamp
             
         Returns:
-            Tuple of (drift_metrics, alerts)
+            Drift metrics dictionary
         """
         logger.info("Running full drift detection")
         
@@ -430,16 +430,9 @@ class DriftDetector:
             'window_start': window_start,
             'timestamp': datetime.now().isoformat()
         }
-        
-        # Generate alerts
-        alerts = self.generate_drift_alerts(drift_metrics, window_start)
-        
-        # Save alerts
-        if alerts:
-            self.storage.append_drift_alerts(alerts)
-        
+
         logger.info("Drift detection complete")
-        return drift_metrics, alerts
+        return drift_metrics
 
 
 if __name__ == "__main__":

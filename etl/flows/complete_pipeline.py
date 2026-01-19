@@ -1,6 +1,7 @@
 """Master Prefect flow orchestrating the complete pipeline."""
 from prefect import flow
 from datetime import datetime, timedelta
+from typing import Optional
 from pathlib import Path
 from etl.flows.data_ingestion import data_ingestion_flow
 from etl.flows.model_training import model_training_flow
@@ -13,8 +14,8 @@ logger = setup_logger(__name__, "logs/prefect_flows.log")
 
 @flow(name="complete-pipeline-flow", log_prints=True)
 def complete_pipeline_flow(
-    start_date: str = None,
-    end_date: str = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     is_initial: bool = False
 ):
     """

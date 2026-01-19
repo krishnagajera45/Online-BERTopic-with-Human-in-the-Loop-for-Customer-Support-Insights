@@ -126,11 +126,11 @@ class BERTopicOnlineWrapper:
             topics, probs = self.model.fit_transform(documents)
             logger.info(f"Model training complete. Found {len(set(topics))} topics")
             
-            # Save model with MLflow
-            self._save_model_with_mlflow(batch_id, window_start, window_end, len(documents))
-            
             # Save model locally
             self.save_model(self.config.storage.current_model_path)
+            
+            # Save model with MLflow
+            self._save_model_with_mlflow(batch_id, window_start, window_end, len(documents))
             
             # Extract and save topic metadata
             self._save_topic_metadata(batch_id, window_start, window_end)
@@ -166,6 +166,17 @@ class BERTopicOnlineWrapper:
         logger.info(f"Batch: {batch_id}")
         
         try:
+            # Ensure we have a fitted model to update
+            current_path = Path(self.config.storage.current_model_path)
+            if current_path.exists():
+                if self.model is None or getattr(self.model, "topics_", None) is None:
+                    self.load_model(self.config.storage.current_model_path)
+            else:
+                raise ValueError(
+                    "No fitted BERTopic model found. "
+                    "Train a seed model before running online updates."
+                )
+
             # Archive current model as previous
             self._archive_current_model()
             
@@ -185,9 +196,9 @@ class BERTopicOnlineWrapper:
             logger.info(f"Model update complete")
             
             # Save updated model
-            self._save_model_with_mlflow(batch_id, window_start, window_end, len(new_documents))
-            # Saves to: models/current/bertopic_model.pkl
             self.save_model(self.config.storage.current_model_path)
+            # Saves to: models/current/bertopic_model.pkl
+            self._save_model_with_mlflow(batch_id, window_start, window_end, len(new_documents))
             
             # Update topic metadata
             # Saves to: outputs/topics/topics_metadata.json
@@ -251,7 +262,12 @@ class BERTopicOnlineWrapper:
                 
                 # Log model artifact
                 model_path = self.config.storage.current_model_path
-                mlflow.log_artifact(model_path)
+                if Path(model_path).exists():
+                    mlflow.log_artifact(model_path)
+                else:
+                    logger.warning(
+                        f"Model artifact not found at {model_path}, skipping MLflow log"
+                    )
                 
                 logger.info(f"Logged model to MLflow: {num_topics} topics")
         
@@ -289,6 +305,7 @@ class BERTopicOnlineWrapper:
                 top_words = [word for word, _ in topic_words[:10]] if topic_words else []
                 
                 # Generate custom label from top 3 words
+                ## -- Here we can generate custom labe using LLM (Ollama API)
                 custom_label = ", ".join([word for word, _ in topic_words[:3]]) if topic_words else f"Topic {topic_id}"
                 
                 topic_metadata = {
