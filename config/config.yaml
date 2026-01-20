@@ -18,6 +18,7 @@ model:
   min_df: 1  # Allow all words for small datasets
   max_df: 1.0  # Allow all words for small datasets
   ngram_range: [1, 2]
+  top_n_words: 10  # Number of top words per topic
 
 storage:
   topics_metadata_path: "outputs/topics/topics_metadata.json"
@@ -46,6 +47,6 @@ dashboard:
 
 scheduler:
   batch_size: 5000
-  window_days: 1
-  schedule_cron: "0 2 * * *"  # Daily at 2 AM
+  window_minutes: 30
+  schedule_cron: "*/30 * * * *"  # Every 30 minutes
 

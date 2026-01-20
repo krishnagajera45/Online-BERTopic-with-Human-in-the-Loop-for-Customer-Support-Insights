@@ -30,6 +30,7 @@ class ModelConfig:
     min_df: int = 5
     max_df: float = 0.95
     ngram_range: list = field(default_factory=lambda: [1, 2])
+    top_n_words: int = 10
 
 
 @dataclass
@@ -71,8 +72,8 @@ class DashboardConfig:
 class SchedulerConfig:
     """Scheduler configuration."""
     batch_size: int = 5000
-    window_days: int = 1
-    schedule_cron: str = "0 2 * * *"
+    window_minutes: int = 30
+    schedule_cron: str = "*/30 * * * *"
 
 
 @dataclass

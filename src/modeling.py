@@ -129,8 +129,8 @@ class BERTopicOnlineWrapper:
             # Save model locally
             self.save_model(self.config.storage.current_model_path)
             
-            # Save model with MLflow
-            self._save_model_with_mlflow(batch_id, window_start, window_end, len(documents))
+            # Note: MLflow logging is now handled centrally in the pipeline flow
+            # to enable Prefect-MLflow integration with run linking
             
             # Extract and save topic metadata
             self._save_topic_metadata(batch_id, window_start, window_end)
@@ -191,14 +191,17 @@ class BERTopicOnlineWrapper:
                 Re-ranks keywords with c-TF-IDF
                 Updates topic labels"""
                 
-            self.model.update_topics(new_documents, vectorizer_model=self.vectorizer_model)
+            # update_topics needs both documents and their assigned topics
+            self.model.update_topics(new_documents, topics=topics, vectorizer_model=self.vectorizer_model)
             
             logger.info(f"Model update complete")
             
             # Save updated model
             self.save_model(self.config.storage.current_model_path)
             # Saves to: models/current/bertopic_model.pkl
-            self._save_model_with_mlflow(batch_id, window_start, window_end, len(new_documents))
+            
+            # Note: MLflow logging is now handled centrally in the pipeline flow
+            # to enable Prefect-MLflow integration with run linking
             
             # Update topic metadata
             # Saves to: outputs/topics/topics_metadata.json

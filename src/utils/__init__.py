@@ -18,6 +18,7 @@ from .helpers import (
     calculate_percentage_change,
     truncate_text
 )
+from .mlflow_logger import MLflowLogger, get_prefect_context
 
 __all__ = [
     'load_config',
@@ -36,6 +37,8 @@ __all__ = [
     'format_timestamp',
     'normalize_weights',
     'calculate_percentage_change',
-    'truncate_text'
+    'truncate_text',
+    'MLflowLogger',
+    'get_prefect_context'
 ]
 

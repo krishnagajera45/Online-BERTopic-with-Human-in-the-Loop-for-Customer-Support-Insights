@@ -161,10 +161,14 @@ def preprocess_batch(
         if filter_inbound:
             df = filter_customer_tweets(df, inbound_column='inbound')
         
-        # Step 4: Add document IDs
+        # Step 4: Sort by timestamp after filtering
+        if 'created_at' in df.columns:
+            df = df.sort_values('created_at')
+        
+        # Step 5: Add document IDs
         df = add_doc_id(df)
         
-        # Step 5: Save to Parquet
+        # Step 6: Save to Parquet
         output_path = Path(output_parquet)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_parquet, index=False)

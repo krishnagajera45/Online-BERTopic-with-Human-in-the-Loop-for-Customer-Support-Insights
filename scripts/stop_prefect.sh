@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop Prefect server and agent
+# Stop Prefect server and worker
 
 echo "🛑 Stopping Prefect infrastructure..."
 
@@ -10,10 +10,10 @@ if [ -f .prefect/server.pid ]; then
     kill $SERVER_PID 2>/dev/null || echo "Server already stopped"
 fi
 
-if [ -f .prefect/agent.pid ]; then
-    AGENT_PID=$(cat .prefect/agent.pid)
-    echo "Stopping Prefect agent (PID: $AGENT_PID)..."
-    kill $AGENT_PID 2>/dev/null || echo "Agent already stopped"
+if [ -f .prefect/worker.pid ]; then
+    WORKER_PID=$(cat .prefect/worker.pid)
+    echo "Stopping Prefect worker (PID: $WORKER_PID)..."
+    kill $WORKER_PID 2>/dev/null || echo "Worker already stopped"
 fi
 
 # Clean up PID files

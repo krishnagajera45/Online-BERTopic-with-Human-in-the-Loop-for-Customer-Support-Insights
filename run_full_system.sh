@@ -42,7 +42,12 @@ source venv/bin/activate
 
 # Install dependencies
 echo -e "${BLUE}Installing dependencies...${NC}"
-pip install -q -r requirements.txt
+# Use pip if available in venv, otherwise fall back to pip3
+if command -v pip &> /dev/null; then
+    pip install -q -r requirements.txt
+else
+    pip3 install -q -r requirements.txt
+fi
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 
 # Create necessary directories
@@ -175,13 +180,19 @@ case $REPLY in
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Server ready!" >> "$UNIFIED_DEBUG_LOG"
         echo ""
         
-        # Start Prefect agent
-        echo -e "${BLUE}Step 2/4: Starting Prefect agent...${NC}"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Starting Prefect agent..." >> "$UNIFIED_DEBUG_LOG"
-        prefect agent start -q default 2>&1 | tee -a logs/prefect_agent.log >> "$UNIFIED_DEBUG_LOG" &
-        PREFECT_AGENT_PID=$!
-        echo "Prefect agent started (PID: $PREFECT_AGENT_PID)"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Agent started (PID: $PREFECT_AGENT_PID)" >> "$UNIFIED_DEBUG_LOG"
+        # Start Prefect worker
+        echo -e "${BLUE}Step 2/4: Starting Prefect worker...${NC}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Starting Prefect worker..." >> "$UNIFIED_DEBUG_LOG"
+        export PREFECT_API_URL="http://127.0.0.1:4200/api"
+        WORK_POOL_NAME="default-agent-pool"
+        if ! prefect work-pool inspect "$WORK_POOL_NAME" >/dev/null 2>&1; then
+            echo "🛠️  Creating work pool: $WORK_POOL_NAME"
+            prefect work-pool create "$WORK_POOL_NAME" -t process
+        fi
+        prefect worker start -p "$WORK_POOL_NAME" -q default 2>&1 | tee -a logs/prefect_worker.log >> "$UNIFIED_DEBUG_LOG" &
+        PREFECT_WORKER_PID=$!
+        echo "Prefect worker started (PID: $PREFECT_WORKER_PID)"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Worker started (PID: $PREFECT_WORKER_PID)" >> "$UNIFIED_DEBUG_LOG"
         sleep 2
         echo -e "${GREEN}✓ Prefect agent ready!${NC}"
         echo ""
@@ -206,7 +217,7 @@ case $REPLY in
         # Save PIDs
         mkdir -p .prefect
         echo $PREFECT_SERVER_PID > .prefect/server.pid
-        echo $PREFECT_AGENT_PID > .prefect/agent.pid
+        echo $PREFECT_WORKER_PID > .prefect/worker.pid
         
         # Start API
         echo -e "${BLUE}Step 4/4: Starting API & Dashboard...${NC}"
@@ -234,7 +245,7 @@ case $REPLY in
         echo "Logs:"
         echo -e "  ${CYAN}📋 UNIFIED DEBUG: ${UNIFIED_DEBUG_LOG}${NC}"
         echo "  - Prefect Server: logs/prefect_server.log"
-        echo "  - Prefect Agent:  logs/prefect_agent.log"
+        echo "  - Prefect Worker: logs/prefect_worker.log"
         echo "  - MLflow Server:  logs/mlflow.log"
         echo "  - API:            logs/api.log"
         echo ""
@@ -259,8 +270,8 @@ case $REPLY in
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] ========== SHUTTING DOWN ALL SERVICES ==========" >> "$UNIFIED_DEBUG_LOG"
         kill $API_PID 2>/dev/null || true
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: API stopped" >> "$UNIFIED_DEBUG_LOG"
-        kill $PREFECT_AGENT_PID 2>/dev/null || true
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: Prefect agent stopped" >> "$UNIFIED_DEBUG_LOG"
+        kill $PREFECT_WORKER_PID 2>/dev/null || true
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: Prefect worker stopped" >> "$UNIFIED_DEBUG_LOG"
         kill $PREFECT_SERVER_PID 2>/dev/null || true
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: Prefect server stopped" >> "$UNIFIED_DEBUG_LOG"
         kill $MLFLOW_PID 2>/dev/null || true
