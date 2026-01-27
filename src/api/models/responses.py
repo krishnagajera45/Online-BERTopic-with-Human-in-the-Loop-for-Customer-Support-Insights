@@ -15,6 +15,8 @@ class TopicResponse(BaseModel):
     window_start: str
     window_end: str
     count: int
+    gpt_label: Optional[str] = None
+    gpt_summary: Optional[str] = None
 
 
 class TrendResponse(BaseModel):

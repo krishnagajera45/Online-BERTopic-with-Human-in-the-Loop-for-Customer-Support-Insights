@@ -24,6 +24,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from bertopic.vectorizers import ClassTfidfTransformer
 
 from src.utils import setup_logger, load_config, generate_batch_id
+from src.utils.ollama_client import generate_topic_label
 from src.storage import StorageManager
 
 logger = setup_logger(__name__, "logs/modeling.log")
@@ -184,7 +185,24 @@ class BERTopicOnlineWrapper:
             # For simplicity, we'll use update_topics which updates topic representations
             # without retraining the entire model
             #Uses existing UMAP and HDBSCAN models,Embeds new documents with BERT,Projects into existing 5D space,,Assigns to existing or new clusters
-            topics, probs = self.model.transform(new_documents)
+            try:
+                topics, probs = self.model.transform(new_documents)
+            except IndexError as e:
+                # Fallback: disable probability mapping when topics mismatch
+                logger.warning(
+                    f"Transform probability mapping failed ({e}); "
+                    "retrying without probabilities"
+                )
+                prev_calc = getattr(self.model, "calculate_probabilities", True)
+                try:
+                    self.model.calculate_probabilities = False
+                    topics, probs = self.model.transform(new_documents)
+                finally:
+                    self.model.calculate_probabilities = prev_calc
+
+            # Ensure probs is always a list of arrays for downstream confidence logic
+            if probs is None:
+                probs = [np.array([]) for _ in range(len(new_documents))]
             
             # Optionally update topic representations with new documents
             """Re-calculates bag-of-words for topics
@@ -308,8 +326,36 @@ class BERTopicOnlineWrapper:
                 top_words = [word for word, _ in topic_words[:10]] if topic_words else []
                 
                 # Generate custom label from top 3 words
-                ## -- Here we can generate custom labe using LLM (Ollama API)
                 custom_label = ", ".join([word for word, _ in topic_words[:3]]) if topic_words else f"Topic {topic_id}"
+                gpt_label = None
+                gpt_summary = None
+
+                # Optional: Use Ollama to generate better label/summary
+                if getattr(self.config, "ollama", None) and self.config.ollama.enabled:
+                    examples = []
+                    try:
+                        if hasattr(self.model, "get_representative_docs"):
+                            examples = self.model.get_representative_docs(topic_id) or []
+                    except Exception:
+                        examples = []
+
+                    result = generate_topic_label(
+                        base_url=self.config.ollama.base_url,
+                        model=self.config.ollama.model,
+                        top_words=top_words,
+                        examples=examples,
+                        prompt_template=self.config.ollama.prompt_template,
+                        temperature=self.config.ollama.temperature,
+                        max_tokens=self.config.ollama.max_tokens,
+                        timeout_seconds=self.config.ollama.timeout_seconds,
+                        examples_limit=self.config.ollama.examples_limit
+                    )
+                    gpt_label = result.get("label")
+                    gpt_summary = result.get("summary")
+
+                    # Prefer GPT label when available
+                    if gpt_label:
+                        custom_label = gpt_label
                 
                 topic_metadata = {
                     'topic_id': topic_id,
@@ -320,7 +366,9 @@ class BERTopicOnlineWrapper:
                     'batch_id': batch_id,
                     'window_start': window_start,
                     'window_end': window_end,
-                    'count': int(row['Count'])
+                    'count': int(row['Count']),
+                    'gpt_label': gpt_label,
+                    'gpt_summary': gpt_summary
                 }
                 topics_metadata.append(topic_metadata)
             

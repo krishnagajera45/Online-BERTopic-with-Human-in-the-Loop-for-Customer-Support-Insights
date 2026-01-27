@@ -33,6 +33,23 @@ mlflow:
   tracking_uri: "file:./mlruns"
   experiment_name: "twcs_topic_modeling"
 
+ollama:
+  enabled: true
+  base_url: "http://localhost:11434"
+  model: "gemma3:1b"  # Change to your local model name
+  temperature: 0.2
+  max_tokens: 128
+  timeout_seconds: 30
+  examples_limit: 3
+  prompt_template: |
+    You are labeling support-ticket topics.
+    Given keywords and example texts, return JSON with keys: label, summary.
+    Label: 3-6 words. Summary: one sentence.
+
+    Keywords: {keywords}
+    Examples:
+    {examples}
+
 api:
   host: "0.0.0.0"
   port: 8000

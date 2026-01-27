@@ -91,6 +91,18 @@ def clean_tweet_text(df: pd.DataFrame, text_column: str = 'text') -> pd.DataFram
     df = df[df['text_cleaned'].str.len() > 0]
     logger.info(f"Removed {original_len - len(df)} empty texts")
     
+    # Drop ultra-short documents (token count threshold)
+    min_tokens = 5
+    token_counts = df['text_cleaned'].str.split().str.len()
+    original_len = len(df)
+    df = df[token_counts >= min_tokens]
+    logger.info(f"Removed {original_len - len(df)} short texts (< {min_tokens} tokens)")
+    
+    # Deduplicate on cleaned text
+    original_len = len(df)
+    df = df.drop_duplicates(subset=['text_cleaned'])
+    logger.info(f"Removed {original_len - len(df)} duplicate cleaned texts")
+    
     return df
 
 

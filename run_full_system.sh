@@ -88,8 +88,14 @@ if [ ! -f "models/current/bertopic_model.pkl" ]; then
     echo "This may take a few minutes depending on your data size."
     echo ""
     
-    if [ -f "data/sample/twcs_sample.csv" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training..." >> "$UNIFIED_DEBUG_LOG"
+    if [ -f "data/raw/twcs.csv" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training (raw data)..." >> "$UNIFIED_DEBUG_LOG"
+        python src/scheduler/run_window.py --init 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Initial model training complete" >> "$UNIFIED_DEBUG_LOG"
+        echo -e "${GREEN}✓ Initial model trained${NC}"
+    elif [ -f "data/sample/twcs_sample.csv" ]; then
+        echo -e "${YELLOW}Raw data not found, using sample data for initial training${NC}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training (sample data)..." >> "$UNIFIED_DEBUG_LOG"
         python src/scheduler/run_window.py --init 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Initial model training complete" >> "$UNIFIED_DEBUG_LOG"
         echo -e "${GREEN}✓ Initial model trained${NC}"
@@ -161,7 +167,7 @@ case $REPLY in
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] ========== STARTING ALL SERVICES ==========" >> "$UNIFIED_DEBUG_LOG"
         
         # Start Prefect
-        echo -e "${BLUE}Step 1/4: Starting Prefect server...${NC}"
+        echo -e "${BLUE}Step 1/5: Starting Prefect server...${NC}"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Starting Prefect server..." >> "$UNIFIED_DEBUG_LOG"
         prefect server start 2>&1 | tee -a logs/prefect_server.log >> "$UNIFIED_DEBUG_LOG" &
         PREFECT_SERVER_PID=$!
@@ -181,7 +187,7 @@ case $REPLY in
         echo ""
         
         # Start Prefect worker
-        echo -e "${BLUE}Step 2/4: Starting Prefect worker...${NC}"
+        echo -e "${BLUE}Step 2/5: Starting Prefect worker...${NC}"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] PREFECT: Starting Prefect worker..." >> "$UNIFIED_DEBUG_LOG"
         export PREFECT_API_URL="http://127.0.0.1:4200/api"
         WORK_POOL_NAME="default-agent-pool"
@@ -198,7 +204,7 @@ case $REPLY in
         echo ""
 
         # Start MLflow server for experiment tracking
-        echo -e "${BLUE}Step 3/4: Starting MLflow server...${NC}"
+        echo -e "${BLUE}Step 3/5: Starting MLflow server...${NC}"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MLFLOW: Starting MLflow server..." >> "$UNIFIED_DEBUG_LOG"
         mlflow server \
             --backend-store-uri mlruns \
@@ -214,13 +220,42 @@ case $REPLY in
         echo "   UI: http://127.0.0.1:5000"
         echo ""
         
+        # Start Ollama server for local LLM labeling
+        echo -e "${BLUE}Step 4/5: Starting Ollama server (gemma3:1b)...${NC}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] OLLAMA: Starting Ollama server..." >> "$UNIFIED_DEBUG_LOG"
+        if command -v ollama >/dev/null 2>&1; then
+            if ! curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+                ollama serve >> logs/ollama.log 2>&1 &
+                OLLAMA_PID=$!
+                echo "Ollama server started (PID: $OLLAMA_PID)"
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] OLLAMA: Server started (PID: $OLLAMA_PID)" >> "$UNIFIED_DEBUG_LOG"
+
+                # Wait briefly for Ollama to become ready (non-blocking)
+                for _ in {1..10}; do
+                    if curl -s http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+                        echo "Ollama server ready"
+                        echo "[$(date '+%Y-%m-%d %H:%M:%S')] OLLAMA: Server ready" >> "$UNIFIED_DEBUG_LOG"
+                        break
+                    fi
+                    sleep 1
+                done
+            else
+                echo "Ollama server already running"
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] OLLAMA: Server already running" >> "$UNIFIED_DEBUG_LOG"
+            fi
+        else
+            echo -e "${YELLOW}Ollama not found. Skipping local LLM labeling.${NC}"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] OLLAMA: Not installed, skipping" >> "$UNIFIED_DEBUG_LOG"
+        fi
+        echo ""
+
         # Save PIDs
         mkdir -p .prefect
         echo $PREFECT_SERVER_PID > .prefect/server.pid
         echo $PREFECT_WORKER_PID > .prefect/worker.pid
         
         # Start API
-        echo -e "${BLUE}Step 4/4: Starting API & Dashboard...${NC}"
+        echo -e "${BLUE}Step 5/5: Starting API & Dashboard...${NC}"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] API: Starting FastAPI server..." >> "$UNIFIED_DEBUG_LOG"
         python -m src.api.main 2>&1 | tee -a logs/api.log >> "$UNIFIED_DEBUG_LOG" &
         API_PID=$!
@@ -240,6 +275,7 @@ case $REPLY in
         echo "  📒 MLflow UI:   http://127.0.0.1:5000"
         echo "  🔧 API:         http://localhost:8000"
         echo "  📝 API Docs:    http://localhost:8000/docs"
+        echo "  🤖 Ollama:      http://localhost:11434"
         echo "  📈 Dashboard:   http://localhost:8501"
         echo ""
         echo "Logs:"
@@ -248,6 +284,7 @@ case $REPLY in
         echo "  - Prefect Worker: logs/prefect_worker.log"
         echo "  - MLflow Server:  logs/mlflow.log"
         echo "  - API:            logs/api.log"
+        echo "  - Ollama:         logs/ollama.log"
         echo ""
         echo -e "${CYAN}View unified log live: tail -f ${UNIFIED_DEBUG_LOG}${NC}"
         echo ""
@@ -276,6 +313,10 @@ case $REPLY in
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: Prefect server stopped" >> "$UNIFIED_DEBUG_LOG"
         kill $MLFLOW_PID 2>/dev/null || true
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: MLflow stopped" >> "$UNIFIED_DEBUG_LOG"
+        if [ -n "${OLLAMA_PID:-}" ]; then
+            kill $OLLAMA_PID 2>/dev/null || true
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: Ollama stopped" >> "$UNIFIED_DEBUG_LOG"
+        fi
         rm -rf .prefect
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] SHUTDOWN: All services stopped successfully" >> "$UNIFIED_DEBUG_LOG"
         echo "All services stopped."

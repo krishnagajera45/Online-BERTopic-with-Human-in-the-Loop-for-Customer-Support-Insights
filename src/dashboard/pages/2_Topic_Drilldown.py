@@ -41,6 +41,8 @@ try:
     
     # Topic overview
     st.subheader(f"Topic {topic['topic_id']}: {topic['custom_label']}")
+    if topic.get('gpt_summary'):
+        st.caption(f"GPT Summary: {topic['gpt_summary']}")
     
     col1, col2, col3 = st.columns(3)
     

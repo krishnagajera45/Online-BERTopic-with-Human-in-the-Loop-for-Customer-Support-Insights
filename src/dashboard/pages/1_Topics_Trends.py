@@ -44,11 +44,13 @@ try:
         'count',
         'batch_id',
         'window_start',
-        'window_end'
+        'window_end',
+        'gpt_summary'
     ]].copy()
     
     display_df['top_words'] = display_df['top_words'].apply(lambda x: ', '.join(x[:5]))
-    display_df.columns = ['Topic ID', 'Label', 'Top Keywords', 'Count', 'Batch', 'Window Start', 'Window End']
+    display_df['gpt_summary'] = display_df['gpt_summary'].fillna('').apply(lambda x: x[:120] + ('...' if len(x) > 120 else ''))
+    display_df.columns = ['Topic ID', 'Label', 'Top Keywords', 'Count', 'Batch', 'Window Start', 'Window End', 'GPT Summary']
     
     st.dataframe(
         display_df,
@@ -138,6 +140,8 @@ try:
                 with cols[col_idx]:
                     st.markdown(f"**Topic {topic['topic_id']}: {topic['custom_label']}**")
                     st.caption(f"Count: {topic['count']}")
+                    if topic.get('gpt_summary'):
+                        st.caption(topic['gpt_summary'])
                     keywords = ', '.join(topic['top_words'][:10])
                     st.text(keywords)
 

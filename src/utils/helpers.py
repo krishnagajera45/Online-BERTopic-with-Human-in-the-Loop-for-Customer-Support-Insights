@@ -3,6 +3,8 @@ import hashlib
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any
+import html
+import unicodedata
 
 
 def generate_batch_id(start_date: str, end_date: str) -> str:
@@ -56,6 +58,12 @@ def clean_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
     
+    # Decode HTML entities (e.g., &amp; -> &)
+    text = html.unescape(text)
+    
+    # Normalize unicode (fix curly quotes, odd apostrophes, etc.)
+    text = unicodedata.normalize("NFKC", text)
+    
     # Remove URLs
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     
@@ -64,6 +72,26 @@ def clean_text(text: str) -> str:
     
     # Remove hashtags (keep the word)
     text = re.sub(r'#(\w+)', r'\1', text)
+    
+    # Remove outbound agent signatures (e.g., ^MM, /AY) at end of message
+    text = re.sub(r'(\s*[\^/][A-Za-z]{1,3})+$', '', text)
+    
+    # Mask phone-like numbers (privacy + noise reduction)
+    text = re.sub(r'\b(?:\d[\s\-\.\(\)]*){7,}\d\b', '<PHONE>', text)
+    
+    # Normalize version-like strings (e.g., 8.4.22 -> <VERSION>)
+    text = re.sub(r'\b\d+(?:\.\d+){1,}\b', '<VERSION>', text)
+    
+    
+    # Remove emojis and pictographs (reduce topic noise)
+    text = re.sub(
+        r'[\U0001F300-\U0001F6FF\U0001F700-\U0001FAFF\U00002700-\U000027BF\U0001F1E6-\U0001F1FF]+',
+        '',
+        text
+    )
+    
+    # Normalize repeated punctuation (e.g., !!! -> !, ??? -> ?)
+    text = re.sub(r'([!?\.]){2,}', r'\1', text)
     
     # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text)

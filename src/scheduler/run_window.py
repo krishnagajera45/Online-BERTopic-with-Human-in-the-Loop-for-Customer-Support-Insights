@@ -184,25 +184,32 @@ def run_window_pipeline():
 
 
 def run_initial_setup():
-    """Run initial setup with sample data."""
-    logger.info("Running initial setup with sample data")
+    """Run initial setup with full dataset (raw CSV)."""
+    logger.info("Running initial setup with raw data")
     
     try:
         config = load_config()
         storage = StorageManager(config)
         
-        # Use sample data
-        logger.info("Processing sample data (first 50k rows)")
-        parquet_path = "data/processed/twcs_sample.parquet"
+        # Use raw data
+        logger.info("Processing raw dataset")
+        parquet_path = "data/processed/twcs_initial.parquet"
         
         sample_data = preprocess_batch(
-            csv_path=config.data.sample_csv_path,
+            csv_path=config.data.raw_csv_path,
             output_parquet=parquet_path,
-            nrows=50000,
             filter_inbound=True
         )
         
-        logger.info(f"Processed {len(sample_data)} sample documents")
+        logger.info(f"Processed {len(sample_data)} documents from raw dataset")
+
+        # Determine actual window from data if timestamps exist
+        if 'created_at' in sample_data.columns and len(sample_data) > 0:
+            window_start = sample_data['created_at'].min().isoformat()
+            window_end = sample_data['created_at'].max().isoformat()
+        else:
+            window_start = "2017-10-01"
+            window_end = "2017-10-31"
         
         # Train seed model
         logger.info("Training initial seed model")
@@ -211,8 +218,8 @@ def run_initial_setup():
         topics, probs = model_wrapper.train_seed_model(
             documents=sample_data['text_cleaned'].tolist(),
             batch_id="batch_initial",
-            window_start="2017-10-01",
-            window_end="2017-10-31"
+            window_start=window_start,
+            window_end=window_end
         )
         
         logger.info(f"Initial model trained with {len(set(topics))} topics")
@@ -228,12 +235,12 @@ def run_initial_setup():
         
         # Update state
         storage.save_processing_state({
-            'last_processed_timestamp': "2017-10-31T23:59:59",
+            'last_processed_timestamp': window_end,
             'last_batch_id': "batch_initial",
             'last_run_timestamp': datetime.now().isoformat(),
             'documents_processed': len(sample_data),
             'status': 'success',
-            'note': 'Initial setup with sample data'
+            'note': 'Initial setup with raw data'
         })
         
         logger.info("Initial setup completed successfully!")

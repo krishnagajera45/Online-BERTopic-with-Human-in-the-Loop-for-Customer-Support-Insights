@@ -53,6 +53,25 @@ class MLflowConfig:
 
 
 @dataclass
+class OllamaConfig:
+    """Ollama (local LLM) configuration."""
+    enabled: bool = False
+    base_url: str = "http://localhost:11434"
+    model: str = "phi3:mini"
+    temperature: float = 0.2
+    max_tokens: int = 128
+    timeout_seconds: int = 20
+    examples_limit: int = 3
+    prompt_template: str = (
+        "You are labeling support-ticket topics.\n"
+        "Given keywords and example texts, return JSON with keys: label, summary.\n"
+        "Label: 3-6 words. Summary: one sentence.\n\n"
+        "Keywords: {keywords}\n"
+        "Examples:\n{examples}\n"
+    )
+
+
+@dataclass
 class APIConfig:
     """API server configuration."""
     host: str = "0.0.0.0"
@@ -83,6 +102,7 @@ class Config:
     model: ModelConfig
     storage: StorageConfig
     mlflow: MLflowConfig
+    ollama: OllamaConfig
     api: APIConfig
     dashboard: DashboardConfig
     scheduler: SchedulerConfig
@@ -110,6 +130,7 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
         model=ModelConfig(**config_dict['model']),
         storage=StorageConfig(**config_dict['storage']),
         mlflow=MLflowConfig(**config_dict['mlflow']),
+        ollama=OllamaConfig(**config_dict.get('ollama', {})),
         api=APIConfig(**config_dict['api']),
         dashboard=DashboardConfig(**config_dict['dashboard']),
         scheduler=SchedulerConfig(**config_dict['scheduler'])
