@@ -9,28 +9,26 @@ from etl.flows.data_ingestion import data_ingestion_flow
 from etl.flows.model_training import model_training_flow
 from etl.flows.drift_detection import drift_detection_flow
 from src.utils import load_config, generate_batch_id, MLflowLogger, get_prefect_context
-from src.storage import StorageManager
+from src.utils import StorageManager
 
 
 @flow(name="complete-pipeline-flow", log_prints=True)
 def complete_pipeline_flow(
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    is_initial: bool = False
+    end_date: Optional[str] = None
 ):
     """
     Master flow orchestrating the complete TwCS topic modeling pipeline.
     
-    This flow runs:
+    This flow automatically:
     1. Data Ingestion (ETL)
-    2. Model Training (seed or online update)
-    3. Drift Detection (if not initial)
+    2. Model Training (auto-detects seed vs online update)
+    3. Drift Detection (if previous model exists)
     4. State Management
     
     Args:
         start_date: Start date for data window (YYYY-MM-DD)
         end_date: End date for data window (YYYY-MM-DD)
-        is_initial: Whether this is initial setup
         
     Returns:
         Dictionary with pipeline results
@@ -106,7 +104,7 @@ def complete_pipeline_flow(
         parquet_path = f"data/processed/{batch_id}.parquet"
         
         df = data_ingestion_flow(
-            csv_path=config.data.raw_csv_path if not is_initial else config.data.sample_csv_path,
+            csv_path=config.data.raw_csv_path,
             output_parquet=parquet_path,
             start_date=start_date,
             end_date=end_date,
@@ -136,11 +134,13 @@ def complete_pipeline_flow(
             documents=documents,
             batch_id=batch_id,
             window_start=start_date,
-            window_end=end_date,
-            is_initial=is_initial
+            window_end=end_date
         )
         
         logger.info(f"Model training complete: {len(set(topics))} topics")
+        
+        # Auto-detect model stage
+        model_stage = 'initial' if not Path(config.storage.previous_model_path).exists() else 'online_update'
 
         # Log batch run summary to CSV
         storage.log_batch_run({
@@ -148,8 +148,7 @@ def complete_pipeline_flow(
             'window_start': start_date,
             'window_end': end_date,
             'documents_processed': len(documents),
-            'is_initial': bool(is_initial),
-            'model_stage': 'initial' if is_initial else 'online_update',
+            'model_stage': model_stage,
             'num_topics': len(set(topics))
         })
         
@@ -158,12 +157,11 @@ def complete_pipeline_flow(
         mlflow_logger.log_processing_time("model_training", step2_duration)
         
         # Load model to log details
-        from src.modeling import BERTopicOnlineWrapper
-        model_wrapper = BERTopicOnlineWrapper(config)
-        model_wrapper.load_model(config.storage.current_model_path)
+        from src.utils import load_bertopic_model
+        model = load_bertopic_model(config.storage.current_model_path)
         
         mlflow_logger.log_model_details(
-            model=model_wrapper.model,
+            model=model,
             topics=topics,
             probs=probs,
             model_config={
@@ -174,7 +172,7 @@ def complete_pipeline_flow(
                 "n_components": config.model.umap_n_components,
                 "top_n_words": config.model.top_n_words
             },
-            is_initial=is_initial
+            is_initial=(model_stage == 'initial')
         )
         
         # Log model artifact
@@ -182,7 +180,7 @@ def complete_pipeline_flow(
         
         # ========== STEP 3: DRIFT DETECTION ==========
         step3_start = time.time()
-        if not is_initial and Path(config.storage.previous_model_path).exists():
+        if Path(config.storage.previous_model_path).exists():
             logger.info("Step 3: Running drift detection flow")
             
             # For drift, we'd need previous batch docs - simplified for now
@@ -283,6 +281,6 @@ def complete_pipeline_flow(
 
 if __name__ == "__main__":
     # Run the complete pipeline
-    result = complete_pipeline_flow(is_initial=False)
+    result = complete_pipeline_flow()
     print(f"Pipeline result: {result}")
 

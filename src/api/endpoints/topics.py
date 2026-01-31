@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
 from src.api.models.responses import TopicResponse
-from src.storage import StorageManager
+from src.utils import StorageManager
 from src.utils import setup_logger
 
 router = APIRouter()

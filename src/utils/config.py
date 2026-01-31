@@ -97,6 +97,19 @@ class SchedulerConfig:
 
 
 @dataclass
+class PrefectConfig:
+    """Prefect orchestration configuration."""
+    api_url: str = "http://127.0.0.1:4200/api"
+    logging_level: str = "INFO"
+    work_queue: str = "default"
+    work_pool: str = "default-agent-pool"
+    flow_run_name_template: str = "pipeline-{date}"
+    task_retry_delay_seconds: int = 10
+    max_retries: int = 2
+    storage_path: str = "data/prefect"
+
+
+@dataclass
 class Config:
     """Main configuration object."""
     data: DataConfig
@@ -107,6 +120,7 @@ class Config:
     api: APIConfig
     dashboard: DashboardConfig
     scheduler: SchedulerConfig
+    prefect: PrefectConfig
 
 
 def load_config(config_path: str = "config/config.yaml") -> Config:
@@ -134,7 +148,8 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
         ollama=OllamaConfig(**config_dict.get('ollama', {})),
         api=APIConfig(**config_dict['api']),
         dashboard=DashboardConfig(**config_dict['dashboard']),
-        scheduler=SchedulerConfig(**config_dict['scheduler'])
+        scheduler=SchedulerConfig(**config_dict['scheduler']),
+        prefect=PrefectConfig(**config_dict.get('prefect', {}))
     )
 
 

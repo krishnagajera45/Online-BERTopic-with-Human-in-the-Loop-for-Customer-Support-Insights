@@ -1,7 +1,7 @@
 """Pipeline status API endpoint."""
 from fastapi import APIRouter, HTTPException
 from src.api.models.responses import PipelineStatusResponse
-from src.storage import StorageManager
+from src.utils import StorageManager
 from src.utils import setup_logger
 
 router = APIRouter()

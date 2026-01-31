@@ -3,15 +3,13 @@ from fastapi import APIRouter, HTTPException
 from pathlib import Path
 from src.api.models.requests import InferRequest
 from src.api.models.responses import InferResponse
-from src.modeling import BERTopicOnlineWrapper
-from src.utils import setup_logger, clean_text, load_config
-from src.storage import StorageManager
+from src.utils import setup_logger, clean_text, load_config, load_bertopic_model
+from src.utils import StorageManager
 
 router = APIRouter()
 logger = setup_logger(__name__)
 config = load_config()
 storage = StorageManager(config)
-model_wrapper = BERTopicOnlineWrapper(config)
 
 
 @router.post("", response_model=InferResponse)
@@ -35,7 +33,7 @@ async def infer_topic(request: InferRequest):
             raise HTTPException(status_code=404, detail="No trained model found")
         
         logger.debug("INFERENCE: Loading model for transform")
-        model = model_wrapper.load_model(str(model_path))
+        model = load_bertopic_model(str(model_path))
         
         # Transform
         topics, probs = model.transform([cleaned_text])

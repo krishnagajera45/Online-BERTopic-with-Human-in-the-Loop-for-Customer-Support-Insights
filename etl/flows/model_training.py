@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from etl.tasks.model_tasks import train_seed_model_task, update_model_online_task, archive_model_task
 from src.utils import load_config
-from src.storage import StorageManager
+from src.utils import StorageManager
 
 
 @flow(name="model-training-flow", log_prints=True)
@@ -13,16 +13,15 @@ def model_training_flow(
     documents: list,
     batch_id: str,
     window_start: str,
-    window_end: str,
-    is_initial: bool = False
+    window_end: str
 ):
     """
-    Prefect flow for model training (seed or online update).
+    Prefect flow for model training (automatically detects seed vs online update).
     
-    This flow:
+    This flow automatically:
     1. Checks if model exists
-    2. Archives current model (if update)
-    3. Trains/updates model
+    2. If exists → Archives and updates (online learning)
+    3. If not exists → Trains seed model
     4. Saves model and metadata
     5. Saves document assignments
     
@@ -31,7 +30,6 @@ def model_training_flow(
         batch_id: Batch identifier
         window_start: Window start date
         window_end: Window end date
-        is_initial: Whether this is initial training
         
     Returns:
         Tuple of (topics, probabilities)
@@ -42,17 +40,19 @@ def model_training_flow(
     logger.info(f"Batch: {batch_id}")
     logger.info(f"Window: {window_start} to {window_end}")
     logger.info(f"Documents: {len(documents)}")
-    logger.info(f"Initial training: {is_initial}")
     
     config = load_config()
     storage = StorageManager(config)
     
-    # Check if this is initial training or update
+    # Automatically detect if this is initial training or update
     model_exists = Path(config.storage.current_model_path).exists()
     
-    if model_exists and not is_initial:
+    if model_exists:
+        # Model exists → Update with new data (online learning)
+        logger.info("Existing model found → Performing online update")
+        
         # Archive current model before update
-        logger.info("Archiving current model")
+        logger.info("Archiving current model as previous")
         archive_model_task()
         
         # Update model online
@@ -63,8 +63,8 @@ def model_training_flow(
             window_end=window_end
         )
     else:
-        # Train seed model
-        logger.info("Training seed model")
+        # No model → Train seed model
+        logger.info("No existing model found → Training seed model")
         topics, probs = train_seed_model_task(
             documents=documents,
             batch_id=batch_id,
@@ -119,8 +119,7 @@ if __name__ == "__main__":
         documents=test_docs,
         batch_id="test_batch",
         window_start="2024-01-01",
-        window_end="2024-01-02",
-        is_initial=False
+        window_end="2024-01-02"
     )
     print(f"Topics: {topics}")
 

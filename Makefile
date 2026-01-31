@@ -9,7 +9,7 @@ help:
 	@echo "run-api          Start FastAPI backend"
 	@echo "run-dashboard    Start Streamlit dashboard"
 	@echo "run-all          Run API and dashboard (requires tmux)"
-	@echo "run-window       Run window processing pipeline"
+	@echo "run-pipeline     Run complete pipeline (Prefect flow)"
 	@echo "test             Run tests"
 	@echo "lint             Run linting"
 
@@ -26,8 +26,8 @@ clean:
 	@echo "🧹 Cleaned up generated files"
 
 init-model:
-	python src/scheduler/run_window.py --init
-	@echo "✅ Initial model trained"
+	python -m etl.flows.complete_pipeline
+	@echo "✅ Initial model trained (pipeline auto-detected first run)"
 
 run-api:
 	python -m src.api.main
@@ -50,8 +50,8 @@ stop:
 	@tmux kill-session -t twcs-dashboard || true
 	@echo "⏹️  Services stopped"
 
-run-window:
-	python src/scheduler/run_window.py --window
+run-pipeline:
+	python -m etl.flows.complete_pipeline
 
 test:
 	pytest tests/ -v

@@ -1,8 +1,14 @@
-"""Prefect flow for data ingestion and ETL."""
+"""Prefect flow for data ingestion and ETL (with granular task-level tracking)."""
 from typing import Optional
 from prefect import flow, get_run_logger
 from datetime import datetime
-from etl.tasks.data_tasks import preprocess_data_task, validate_data_task
+from etl.tasks.data_tasks import (
+    load_data_window_task,
+    clean_text_column_task,
+    add_document_ids_task,
+    save_to_parquet_task,
+    validate_data_task
+)
 
 
 @flow(name="data-ingestion-flow", log_prints=True)
@@ -15,20 +21,21 @@ def data_ingestion_flow(
     min_docs: int = 10
 ):
     """
-    Prefect flow for data ingestion and preprocessing.
+    Prefect flow for data ingestion and preprocessing with granular task tracking.
     
-    This flow:
-    1. Reads data from CSV
-    2. Preprocesses (clean, filter)
-    3. Validates data quality
-    4. Saves to Parquet
+    This flow orchestrates granular data processing tasks:
+    1. Load data window (task)
+    2. Clean text (task)
+    3. Add document IDs (task)
+    4. Validate data (task)
+    5. Save to Parquet (task)
     
     Args:
         csv_path: Path to input CSV
         output_parquet: Path to output Parquet
         start_date: Start date for filtering
         end_date: End date for filtering
-        filter_inbound: Whether to filter to inbound tweets
+        filter_inbound: Deprecated (data already filtered)
         min_docs: Minimum documents required
         
     Returns:
@@ -36,24 +43,43 @@ def data_ingestion_flow(
     """
     logger = get_run_logger()
     
-    logger.info(f"Starting data ingestion flow")
+    logger.info(f"Starting granular data ingestion flow")
     logger.info(f"Input: {csv_path}")
     logger.info(f"Output: {output_parquet}")
     logger.info(f"Date range: {start_date} to {end_date}")
     
-    # Step 1: Preprocess data
-    df = preprocess_data_task(
+    # Step 1: Load data window (task)
+    logger.info("Step 1: Loading data window")
+    df = load_data_window_task(
         csv_path=csv_path,
-        output_parquet=output_parquet,
         start_date=start_date,
         end_date=end_date,
-        filter_inbound=filter_inbound
+        nrows=None
     )
     
-    # Step 2: Validate data
+    # Step 2: Clean text (task)
+    logger.info("Step 2: Cleaning text")
+    df = clean_text_column_task(
+        df=df,
+        text_column='text',
+        min_tokens=5
+    )
+    
+    # Step 3: Add document IDs (task)
+    logger.info("Step 3: Adding document IDs")
+    df = add_document_ids_task(df)
+    
+    # Step 4: Validate data (task)
+    logger.info("Step 4: Validating data")
     validate_data_task(df, min_docs=min_docs)
     
+    # Step 5: Save to Parquet (task)
+    logger.info("Step 5: Saving to Parquet")
+    output_path = save_to_parquet_task(df, output_parquet)
+    
     logger.info(f"Data ingestion flow completed: {len(df)} documents")
+    logger.info(f"Saved to: {output_path}")
+    
     return df
 
 
@@ -65,4 +91,3 @@ if __name__ == "__main__":
         filter_inbound=True
     )
     print(f"Processed {len(df)} documents")
-

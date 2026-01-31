@@ -88,19 +88,15 @@ if [ ! -f "models/current/bertopic_model.pkl" ]; then
     echo "This may take a few minutes depending on your data size."
     echo ""
     
-    if [ -f "data/raw/twcs_cleaned.csv" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training (raw data)..." >> "$UNIFIED_DEBUG_LOG"
-        python src/scheduler/run_window.py --init 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Initial model training complete" >> "$UNIFIED_DEBUG_LOG"
-        echo -e "${GREEN}✓ Initial model trained${NC}"
-    elif [ -f "data/sample/twcs_sample.csv" ]; then
-        echo -e "${YELLOW}Raw data not found, using sample data for initial training${NC}"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training (sample data)..." >> "$UNIFIED_DEBUG_LOG"
-        python src/scheduler/run_window.py --init 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
+    if [ -f "data/raw/twcs_cleaned.csv" ] || [ -f "data/sample/twcs_sample.csv" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training..." >> "$UNIFIED_DEBUG_LOG"
+        # Pipeline auto-detects that no model exists and trains seed model
+        python -m etl.flows.complete_pipeline 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Initial model training complete" >> "$UNIFIED_DEBUG_LOG"
         echo -e "${GREEN}✓ Initial model trained${NC}"
     else
         echo -e "${YELLOW}Skipping model training - no data available${NC}"
+        echo "Please place data at: data/raw/twcs_cleaned.csv or data/sample/twcs_sample.csv"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Skipped - no data available" >> "$UNIFIED_DEBUG_LOG"
     fi
 fi

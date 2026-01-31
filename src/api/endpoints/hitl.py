@@ -2,15 +2,13 @@
 from fastapi import APIRouter, HTTPException
 from src.api.models.requests import MergeRequest, SplitRequest, RelabelRequest
 from src.api.models.responses import StatusResponse
-from src.modeling import BERTopicOnlineWrapper
-from src.storage import StorageManager
+from src.utils import StorageManager, load_bertopic_model
 from src.utils import setup_logger, load_config
 
 router = APIRouter()
 logger = setup_logger(__name__)
 config = load_config()
 storage = StorageManager(config)
-model_wrapper = BERTopicOnlineWrapper(config)
 
 
 @router.post("/merge", response_model=StatusResponse)
@@ -20,7 +18,7 @@ async def merge_topics(request: MergeRequest):
         logger.info(f"Merging topics: {request.topic_ids}")
         
         # Load current model
-        model = model_wrapper.load_model(config.storage.current_model_path)
+        model = load_bertopic_model(config.storage.current_model_path)
         
         # Get documents (we need them for merging)
         # For now, we'll update the metadata without actually retraining

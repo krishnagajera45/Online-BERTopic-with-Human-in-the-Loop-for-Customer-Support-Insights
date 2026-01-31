@@ -65,6 +65,16 @@ dashboard:
 
 scheduler:
   batch_size: 5000
-  window_minutes: 50
-  schedule_cron: "*/10 * * * *"  # Every 30 minutes
+  window_minutes: 5
+  schedule_cron: "*/5 * * * *"  # Every 5 minutes
+
+prefect:
+  api_url: "http://127.0.0.1:4200/api"
+  logging_level: "INFO"
+  work_queue: "default"
+  work_pool: "default-agent-pool"
+  flow_run_name_template: "pipeline-{date}"
+  task_retry_delay_seconds: 10
+  max_retries: 2
+  storage_path: "data/prefect"
 

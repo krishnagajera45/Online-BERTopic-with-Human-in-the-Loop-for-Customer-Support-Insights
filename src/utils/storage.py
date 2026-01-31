@@ -13,7 +13,8 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from src.utils import setup_logger, load_config
+from src.utils.logging_config import setup_logger
+from src.utils.config import load_config
 
 logger = setup_logger(__name__, "logs/storage.log")
 
