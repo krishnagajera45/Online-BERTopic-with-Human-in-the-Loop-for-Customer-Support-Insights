@@ -2,11 +2,16 @@
 ETL Pipeline for TwCS Data Processing.
 
 This module handles:
-- Loading TwCS data from CSV
-- Parsing timestamps
+- Loading pre-processed TwCS data from CSV (already filtered to inbound, sorted, with synthetic timestamps)
 - Cleaning text (remove URLs, mentions, extra whitespace)
-- Filtering to inbound customer tweets
+- Filtering by date windows for batch processing
 - Saving processed data as Parquet
+
+NOTE: The raw data (twcs_cleaned.csv) has already been preprocessed in notebooks/data_preprocess.ipynb:
+  - Filtered to inbound=True (customer messages only)
+  - Empty/NaN text removed
+  - Synthetic timestamps created (1-second intervals starting 2017-10-01)
+  - Sorted chronologically by created_at
 """
 import pandas as pd
 import numpy as np
@@ -25,43 +30,45 @@ def load_twcs_data(
     nrows: Optional[int] = None
 ) -> pd.DataFrame:
     """
-    Load TwCS data from CSV with optional date filtering.
+    Load pre-processed TwCS data from CSV with optional date filtering.
+    
+    NOTE: The CSV is expected to be already preprocessed with:
+    - Inbound messages only (customer tweets)
+    - Valid timestamps in datetime format
+    - Chronologically sorted
+    - No empty/NaN text values
     
     Args:
-        csv_path: Path to TwCS CSV file
-        start_date: Start date for filtering (YYYY-MM-DD)
-        end_date: End date for filtering (YYYY-MM-DD)
+        csv_path: Path to preprocessed TwCS CSV file
+        start_date: Start date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+        end_date: End date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
         nrows: Number of rows to read (for testing)
         
     Returns:
         DataFrame with TwCS data
     """
-    logger.info(f"Loading TwCS data from {csv_path}")
+    logger.info(f"Loading pre-processed TwCS data from {csv_path}")
     
     try:
-        # Read CSV
-        df = pd.read_csv(csv_path, nrows=nrows)
+        # Read CSV - timestamps are already in datetime format from preprocessing
+        df = pd.read_csv(csv_path, nrows=nrows, parse_dates=['created_at'])
         logger.info(f"Loaded {len(df)} rows from CSV")
         
-        # Parse timestamps
-        if 'created_at' in df.columns:
-            df['created_at'] = pd.to_datetime(
-                df['created_at'],
-                errors='coerce',
-                utc=True
-            )
-            logger.info("Parsed 'created_at' timestamps")
+        # Ensure timezone-aware datetimes (should already be UTC from preprocessing)
+        if 'created_at' in df.columns and df['created_at'].dt.tz is None:
+            df['created_at'] = df['created_at'].dt.tz_localize('UTC')
+            logger.info("Applied UTC timezone to timestamps")
         
-        # Filter by date range if specified
+        # Filter by date range if specified (for batch processing)
         if start_date and 'created_at' in df.columns:
             start_dt = pd.to_datetime(start_date, utc=True)
             df = df[df['created_at'] >= start_dt]
-            logger.info(f"Filtered data from {start_date}: {len(df)} rows remaining")
+            logger.info(f"Filtered from {start_date}: {len(df)} rows remaining")
         
         if end_date and 'created_at' in df.columns:
             end_dt = pd.to_datetime(end_date, utc=True)
             df = df[df['created_at'] <= end_dt]
-            logger.info(f"Filtered data until {end_date}: {len(df)} rows remaining")
+            logger.info(f"Filtered until {end_date}: {len(df)} rows remaining")
         
         return df
     
@@ -106,26 +113,8 @@ def clean_tweet_text(df: pd.DataFrame, text_column: str = 'text') -> pd.DataFram
     return df
 
 
-def filter_customer_tweets(df: pd.DataFrame, inbound_column: str = 'inbound') -> pd.DataFrame:
-    """
-    Filter to inbound customer tweets only.
-    
-    Args:
-        df: DataFrame with tweet data
-        inbound_column: Name of inbound indicator column
-        
-    Returns:
-        DataFrame with only customer tweets
-    """
-    if inbound_column not in df.columns:
-        logger.warning(f"Column '{inbound_column}' not found, skipping filter")
-        return df
-    
-    original_len = len(df)
-    df_filtered = df[df[inbound_column] == True].copy()
-    logger.info(f"Filtered to inbound tweets: {len(df_filtered)} of {original_len}")
-    
-    return df_filtered
+# NOTE: filter_customer_tweets() removed - already done in preprocessing notebook
+# The twcs_cleaned.csv already contains only inbound=True (customer messages)
 
 
 def add_doc_id(df: pd.DataFrame) -> pd.DataFrame:
@@ -144,18 +133,23 @@ def preprocess_batch(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     nrows: Optional[int] = None,
-    filter_inbound: bool = True
+    filter_inbound: bool = True  # Kept for API compatibility but not used
 ) -> pd.DataFrame:
     """
-    Full ETL pipeline: load → clean → filter → save Parquet.
+    Simplified ETL pipeline for pre-processed data: load → clean → save Parquet.
+    
+    NOTE: The input CSV is expected to be already preprocessed:
+    - Already filtered to inbound=True
+    - Already sorted chronologically
+    - Already has valid timestamps
     
     Args:
-        csv_path: Path to input CSV file
+        csv_path: Path to preprocessed input CSV file
         output_parquet: Path to output Parquet file
-        start_date: Start date for filtering (YYYY-MM-DD)
-        end_date: End date for filtering (YYYY-MM-DD)
+        start_date: Start date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+        end_date: End date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
         nrows: Number of rows to read (for testing)
-        filter_inbound: Whether to filter to inbound tweets only
+        filter_inbound: Deprecated - kept for backward compatibility
         
     Returns:
         Processed DataFrame
@@ -163,24 +157,16 @@ def preprocess_batch(
     logger.info(f"Starting ETL pipeline: {csv_path} -> {output_parquet}")
     
     try:
-        # Step 1: Load data
+        # Step 1: Load pre-processed data with date filtering
         df = load_twcs_data(csv_path, start_date, end_date, nrows)
         
-        # Step 2: Clean text
+        # Step 2: Clean text (remove URLs, mentions, extra whitespace, duplicates)
         df = clean_tweet_text(df, text_column='text')
         
-        # Step 3: Filter to customer tweets (optional)
-        if filter_inbound:
-            df = filter_customer_tweets(df, inbound_column='inbound')
-        
-        # Step 4: Sort by timestamp after filtering
-        if 'created_at' in df.columns:
-            df = df.sort_values('created_at')
-        
-        # Step 5: Add document IDs
+        # Step 3: Add document IDs
         df = add_doc_id(df)
         
-        # Step 6: Save to Parquet
+        # Step 4: Save to Parquet
         output_path = Path(output_parquet)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_parquet, index=False)

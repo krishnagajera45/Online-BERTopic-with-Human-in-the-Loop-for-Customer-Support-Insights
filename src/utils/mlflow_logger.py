@@ -201,8 +201,15 @@ class MLflowLogger:
         mlflow.log_metric("std_topic_size", topic_counts.std())
         
         # Probability statistics
-        if len(probs) > 0:
-            max_probs = [p.max() if len(p) > 0 else 0.0 for p in probs]
+        if probs is not None and len(probs) > 0:
+            # Handle different probability formats from BERTopic
+            if len(probs.shape) == 2:
+                # 2D array: each row is probability distribution for a document
+                max_probs = [p.max() if len(p) > 0 else 0.0 for p in probs]
+            else:
+                # 1D array: single probability value per document
+                max_probs = probs.tolist() if isinstance(probs, np.ndarray) else list(probs)
+            
             mlflow.log_metric("avg_confidence", np.mean(max_probs))
             mlflow.log_metric("median_confidence", np.median(max_probs))
             mlflow.log_metric("min_confidence", np.min(max_probs))

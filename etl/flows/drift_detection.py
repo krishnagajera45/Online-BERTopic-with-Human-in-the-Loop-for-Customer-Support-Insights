@@ -1,10 +1,8 @@
 """Prefect flow for drift detection."""
-from prefect import flow
+from prefect import flow, get_run_logger
 from pathlib import Path
 from etl.tasks.drift_tasks import calculate_drift_task, generate_alerts_task, save_alerts_task
-from src.utils import setup_logger, load_config
-
-logger = setup_logger(__name__, "logs/prefect_flows.log")
+from src.utils import load_config
 
 
 @flow(name="drift-detection-flow", log_prints=True)
@@ -30,6 +28,8 @@ def drift_detection_flow(
     Returns:
         Drift metrics dictionary
     """
+    logger = get_run_logger()
+    
     logger.info(f"Starting drift detection flow")
     logger.info(f"Current docs: {len(current_docs)}")
     logger.info(f"Previous docs: {len(previous_docs) if previous_docs else 0}")

@@ -1,11 +1,8 @@
 """Prefect flow for data ingestion and ETL."""
 from typing import Optional
-from prefect import flow
+from prefect import flow, get_run_logger
 from datetime import datetime
 from etl.tasks.data_tasks import preprocess_data_task, validate_data_task
-from src.utils import setup_logger
-
-logger = setup_logger(__name__, "logs/prefect_flows.log")
 
 
 @flow(name="data-ingestion-flow", log_prints=True)
@@ -37,6 +34,8 @@ def data_ingestion_flow(
     Returns:
         Processed DataFrame
     """
+    logger = get_run_logger()
+    
     logger.info(f"Starting data ingestion flow")
     logger.info(f"Input: {csv_path}")
     logger.info(f"Output: {output_parquet}")

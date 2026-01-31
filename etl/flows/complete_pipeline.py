@@ -1,5 +1,5 @@
 """Master Prefect flow orchestrating the complete pipeline."""
-from prefect import flow
+from prefect import flow, get_run_logger
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
@@ -8,10 +8,8 @@ import mlflow
 from etl.flows.data_ingestion import data_ingestion_flow
 from etl.flows.model_training import model_training_flow
 from etl.flows.drift_detection import drift_detection_flow
-from src.utils import setup_logger, load_config, generate_batch_id, MLflowLogger, get_prefect_context
+from src.utils import load_config, generate_batch_id, MLflowLogger, get_prefect_context
 from src.storage import StorageManager
-
-logger = setup_logger(__name__, "logs/prefect_flows.log")
 
 
 @flow(name="complete-pipeline-flow", log_prints=True)
@@ -37,6 +35,8 @@ def complete_pipeline_flow(
     Returns:
         Dictionary with pipeline results
     """
+    logger = get_run_logger()
+    
     logger.info("=" * 80)
     logger.info(f"Starting complete pipeline flow at {datetime.now()}")
     logger.info("=" * 80)
@@ -141,6 +141,17 @@ def complete_pipeline_flow(
         )
         
         logger.info(f"Model training complete: {len(set(topics))} topics")
+
+        # Log batch run summary to CSV
+        storage.log_batch_run({
+            'batch_id': batch_id,
+            'window_start': start_date,
+            'window_end': end_date,
+            'documents_processed': len(documents),
+            'is_initial': bool(is_initial),
+            'model_stage': 'initial' if is_initial else 'online_update',
+            'num_topics': len(set(topics))
+        })
         
         # Log step 2 timing and model details
         step2_duration = time.time() - step2_start

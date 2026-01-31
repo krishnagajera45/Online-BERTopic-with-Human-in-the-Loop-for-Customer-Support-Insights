@@ -38,7 +38,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Middleware to log all API requests and responses to unified debug log."""
+    """Middleware to log all API requests and responses."""
     start_time = time.time()
     
     # Log incoming request
@@ -84,11 +84,10 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    from src.utils.logging_config import get_unified_debug_log_path
     
     logger.info(f"Starting API server on {config.api.host}:{config.api.port}")
     
-    # Configure uvicorn to use our unified logging
+    # Configure uvicorn logging
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -99,11 +98,6 @@ if __name__ == "__main__":
             },
         },
         "handlers": {
-            "unified_file": {
-                "class": "logging.FileHandler",
-                "filename": get_unified_debug_log_path(),
-                "formatter": "default",
-            },
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
@@ -111,17 +105,17 @@ if __name__ == "__main__":
         },
         "loggers": {
             "uvicorn": {
-                "handlers": ["unified_file", "console"],
+                "handlers": ["console"],
                 "level": "INFO",
                 "propagate": False,
             },
             "uvicorn.error": {
-                "handlers": ["unified_file", "console"],
+                "handlers": ["console"],
                 "level": "INFO",
                 "propagate": False,
             },
             "uvicorn.access": {
-                "handlers": ["unified_file", "console"],
+                "handlers": ["console"],
                 "level": "INFO",
                 "propagate": False,
             },

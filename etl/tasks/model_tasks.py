@@ -1,11 +1,9 @@
 """Prefect tasks for model training."""
-from prefect import task
+from prefect import task, get_run_logger
 from typing import List, Tuple
 import numpy as np
 from src.modeling import BERTopicOnlineWrapper
-from src.utils import setup_logger, load_config
-
-logger = setup_logger(__name__, "logs/prefect_tasks.log")
+from src.utils import load_config
 
 
 @task(name="train_seed_model", retries=1)
@@ -27,6 +25,7 @@ def train_seed_model_task(
     Returns:
         Tuple of (topics, probabilities)
     """
+    logger = get_run_logger()
     logger.info(f"Training seed model on {len(documents)} documents")
     
     config = load_config()
@@ -62,6 +61,7 @@ def update_model_online_task(
     Returns:
         Tuple of (topics, probabilities)
     """
+    logger = get_run_logger()
     logger.info(f"Updating model with {len(documents)} new documents")
     
     config = load_config()
@@ -84,6 +84,7 @@ def archive_model_task() -> None:
     import shutil
     from pathlib import Path
     
+    logger = get_run_logger()
     config = load_config()
     current_path = Path(config.storage.current_model_path)
     previous_path = Path(config.storage.previous_model_path)

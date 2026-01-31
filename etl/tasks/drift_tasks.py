@@ -1,12 +1,10 @@
 """Prefect tasks for drift detection."""
-from prefect import task
+from prefect import task, get_run_logger
 from typing import Dict, Any, List
 from src.drift import DriftDetector
 from src.modeling import BERTopicOnlineWrapper
-from src.utils import setup_logger, load_config
+from src.utils import load_config
 from src.storage import StorageManager
-
-logger = setup_logger(__name__, "logs/prefect_tasks.log")
 
 
 @task(name="calculate_drift", retries=1)
@@ -26,6 +24,7 @@ def calculate_drift_task(
     Returns:
         Dictionary with drift metrics
     """
+    logger = get_run_logger()
     logger.info("Calculating topic drift")
     
     config = load_config()
@@ -61,6 +60,7 @@ def generate_alerts_task(drift_metrics: Dict[str, Any], window_start: str) -> Li
     Returns:
         List of alert dictionaries
     """
+    logger = get_run_logger()
     logger.info("Generating drift alerts")
     
     config = load_config()
@@ -80,6 +80,8 @@ def save_alerts_task(alerts: List[Dict[str, Any]]) -> None:
     Args:
         alerts: List of alert dictionaries
     """
+    logger = get_run_logger()
+    
     if not alerts:
         logger.info("No alerts to save")
         return

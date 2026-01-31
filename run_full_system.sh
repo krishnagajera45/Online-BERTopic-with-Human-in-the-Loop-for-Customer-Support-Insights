@@ -88,7 +88,7 @@ if [ ! -f "models/current/bertopic_model.pkl" ]; then
     echo "This may take a few minutes depending on your data size."
     echo ""
     
-    if [ -f "data/raw/twcs.csv" ]; then
+    if [ -f "data/raw/twcs_cleaned.csv" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Starting initial model training (raw data)..." >> "$UNIFIED_DEBUG_LOG"
         python src/scheduler/run_window.py --init 2>&1 | tee -a "$UNIFIED_DEBUG_LOG"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] MODEL: Initial model training complete" >> "$UNIFIED_DEBUG_LOG"

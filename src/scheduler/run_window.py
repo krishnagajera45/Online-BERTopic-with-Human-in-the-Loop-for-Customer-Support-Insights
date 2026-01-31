@@ -108,11 +108,23 @@ def run_window_pipeline():
         
         # Step 4: Save document assignments
         logger.info("Step 4: Saving document assignments")
+        
+        # Calculate confidence scores from probabilities
+        # Handle different probability formats from BERTopic
+        if probs is None:
+            confidence = [0.0] * len(topics)
+        elif len(probs.shape) == 2:
+            # 2D array: each row is probability distribution
+            confidence = [p.max() if len(p) > 0 else 0.0 for p in probs]
+        else:
+            # 1D array: single probability value per document
+            confidence = probs.tolist()
+        
         assignments = new_data[['doc_id']].copy()
         assignments['topic_id'] = topics
         assignments['timestamp'] = new_data['created_at']
         assignments['batch_id'] = batch_id
-        assignments['confidence'] = [p.max() if len(p) > 0 else 0.0 for p in probs]
+        assignments['confidence'] = confidence
         
         storage.append_doc_assignments(assignments)
         logger.info(f"Saved {len(assignments)} document assignments")
@@ -224,12 +236,23 @@ def run_initial_setup():
         
         logger.info(f"Initial model trained with {len(set(topics))} topics")
         
+        # Calculate confidence scores from probabilities
+        # Handle different probability formats from BERTopic
+        if probs is None:
+            confidence = [0.0] * len(topics)
+        elif len(probs.shape) == 2:
+            # 2D array: each row is probability distribution
+            confidence = [p.max() if len(p) > 0 else 0.0 for p in probs]
+        else:
+            # 1D array: single probability value per document
+            confidence = probs.tolist()
+        
         # Save assignments
         assignments = sample_data[['doc_id']].copy()
         assignments['topic_id'] = topics
         assignments['timestamp'] = sample_data['created_at']
         assignments['batch_id'] = "batch_initial"
-        assignments['confidence'] = [p.max() if len(p) > 0 else 0.0 for p in probs]
+        assignments['confidence'] = confidence
         
         storage.append_doc_assignments(assignments)
         

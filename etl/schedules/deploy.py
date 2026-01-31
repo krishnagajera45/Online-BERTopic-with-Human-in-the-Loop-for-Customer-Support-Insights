@@ -19,7 +19,7 @@ config = load_config()
 if __name__ == "__main__":
     # Apply the deployment
     deployment = complete_pipeline_flow.to_deployment(
-        name="half-hour-pipeline",
+        name="full-pipeline",
         schedule=Cron(config.scheduler.schedule_cron, timezone="America/Los_Angeles"),
         parameters={"is_initial": False},
         work_pool_name=WORK_POOL_NAME,
@@ -27,8 +27,8 @@ if __name__ == "__main__":
             "working_dir": str(PROJECT_ROOT),
             "env": {"PYTHONPATH": str(PROJECT_ROOT)}
         },
-        tags=["production", "half-hour", "topic-modeling"]
+        tags=["production", "topic-modeling"]
     )
     deployment.apply()
-    print("✅ 30-minute deployment created")
+    print("✅ Deployment created successfully.")
 

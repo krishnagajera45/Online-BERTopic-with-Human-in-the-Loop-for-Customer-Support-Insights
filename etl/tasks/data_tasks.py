@@ -1,11 +1,8 @@
 """Prefect tasks for data processing."""
-from prefect import task
+from prefect import task, get_run_logger
 from pathlib import Path
 import pandas as pd
 from src.etl import preprocess_batch, load_twcs_data
-from src.utils import setup_logger
-
-logger = setup_logger(__name__, "logs/prefect_tasks.log")
 
 
 @task(name="read_batch", retries=2, retry_delay_seconds=10)
@@ -27,6 +24,7 @@ def read_batch_task(
     Returns:
         DataFrame with loaded data
     """
+    logger = get_run_logger()
     logger.info(f"Reading batch from {csv_path}")
     logger.info(f"Date range: {start_date} to {end_date}")
     
@@ -62,6 +60,7 @@ def preprocess_data_task(
     Returns:
         Processed DataFrame
     """
+    logger = get_run_logger()
     logger.info(f"Preprocessing data: {csv_path} -> {output_parquet}")
     
     df = preprocess_batch(
@@ -88,6 +87,8 @@ def validate_data_task(df: pd.DataFrame, min_docs: int = 10) -> bool:
     Returns:
         True if valid, raises error otherwise
     """
+    logger = get_run_logger()
+    
     if len(df) < min_docs:
         raise ValueError(f"Insufficient data: {len(df)} < {min_docs} documents")
     

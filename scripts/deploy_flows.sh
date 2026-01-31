@@ -25,7 +25,4 @@ echo ""
 echo "✅ Flows deployed successfully!"
 echo "📊 View deployments: http://127.0.0.1:4200/deployments"
 echo ""
-echo "Scheduled deployments:"
-echo "  - half-hour-pipeline: Runs every 30 minutes"
-echo ""
 

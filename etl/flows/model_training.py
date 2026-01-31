@@ -1,12 +1,11 @@
 """Prefect flow for model training (online learning)."""
-from prefect import flow
+from prefect import flow, get_run_logger
 from pathlib import Path
 import pandas as pd
+import numpy as np
 from etl.tasks.model_tasks import train_seed_model_task, update_model_online_task, archive_model_task
-from src.utils import setup_logger, load_config
+from src.utils import load_config
 from src.storage import StorageManager
-
-logger = setup_logger(__name__, "logs/prefect_flows.log")
 
 
 @flow(name="model-training-flow", log_prints=True)
@@ -37,6 +36,8 @@ def model_training_flow(
     Returns:
         Tuple of (topics, probabilities)
     """
+    logger = get_run_logger()
+    
     logger.info(f"Starting model training flow")
     logger.info(f"Batch: {batch_id}")
     logger.info(f"Window: {window_start} to {window_end}")
@@ -73,13 +74,26 @@ def model_training_flow(
     
     # Save document assignments
     logger.info("Saving document assignments")
+    
+    # Calculate confidence scores from probabilities
+    # Handle different probability formats from BERTopic
+    if probs is None:
+        # No probabilities available
+        confidence = [0.0] * len(topics)
+    elif len(probs.shape) == 2:
+        # 2D array: each row is probability distribution for a document
+        confidence = [p.max() if len(p) > 0 else 0.0 for p in probs]
+    else:
+        # 1D array: single probability value per document
+        confidence = probs.tolist()
+    
     # Create assignments DataFrame (doc_id would come from original data)
     assignments = pd.DataFrame({
         'doc_id': [f'doc_{i}' for i in range(len(documents))],
         'topic_id': topics,
         'timestamp': window_start,
         'batch_id': batch_id,
-        'confidence': [p.max() if len(p) > 0 else 0.0 for p in probs]
+        'confidence': confidence
     })
     storage.append_doc_assignments(assignments)
     
@@ -106,7 +120,7 @@ if __name__ == "__main__":
         batch_id="test_batch",
         window_start="2024-01-01",
         window_end="2024-01-02",
-        is_initial=True
+        is_initial=False
     )
     print(f"Topics: {topics}")
 
