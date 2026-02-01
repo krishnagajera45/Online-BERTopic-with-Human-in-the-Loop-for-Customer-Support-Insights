@@ -5,9 +5,10 @@ from typing import Optional
 from pathlib import Path
 import time
 import mlflow
-from etl.flows.data_ingestion import data_ingestion_flow
-from etl.flows.model_training import model_training_flow
-from etl.flows.drift_detection import drift_detection_flow
+import pandas as pd
+from src.etl.flows.data_ingestion import data_ingestion_flow
+from src.etl.flows.model_training import model_training_flow
+from src.etl.flows.drift_detection import drift_detection_flow
 from src.utils import load_config, generate_batch_id, MLflowLogger, get_prefect_context
 from src.utils import StorageManager
 
@@ -142,16 +143,6 @@ def complete_pipeline_flow(
         # Auto-detect model stage
         model_stage = 'initial' if not Path(config.storage.previous_model_path).exists() else 'online_update'
 
-        # Log batch run summary to CSV
-        storage.log_batch_run({
-            'batch_id': batch_id,
-            'window_start': start_date,
-            'window_end': end_date,
-            'documents_processed': len(documents),
-            'model_stage': model_stage,
-            'num_topics': len(set(topics))
-        })
-        
         # Log step 2 timing and model details
         step2_duration = time.time() - step2_start
         mlflow_logger.log_processing_time("model_training", step2_duration)
@@ -183,10 +174,25 @@ def complete_pipeline_flow(
         if Path(config.storage.previous_model_path).exists():
             logger.info("Step 3: Running drift detection flow")
             
-            # For drift, we'd need previous batch docs - simplified for now
+            # Load previous batch documents for drift comparison
+            previous_docs = []
+            try:
+                # Try to find and load the previous batch's parquet file
+                import glob
+                parquet_files = sorted(glob.glob(f"{config.data.processed_parquet_dir}*.parquet"), reverse=True)
+                if len(parquet_files) >= 2:
+                    # Load second most recent parquet (previous batch)
+                    previous_df = pd.read_parquet(parquet_files[1])
+                    previous_docs = previous_df['text_cleaned'].tolist() if 'text_cleaned' in previous_df.columns else []
+                    logger.info(f"Loaded {len(previous_docs)} previous documents for drift detection")
+                else:
+                    logger.warning(f"Could not find previous batch parquet file for drift detection")
+            except Exception as e:
+                logger.warning(f"Error loading previous documents for drift detection: {e}")
+            
             drift_metrics = drift_detection_flow(
-                current_docs=documents[:1000],  # Sample
-                previous_docs=[],  # Would load from previous batch
+                current_docs=documents,  # Sample
+                previous_docs=previous_docs if previous_docs else [],  # Sample
                 window_start=start_date
             )
             

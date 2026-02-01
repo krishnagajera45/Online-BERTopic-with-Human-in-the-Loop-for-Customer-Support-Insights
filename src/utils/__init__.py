@@ -18,6 +18,7 @@ from .mlflow_logger import MLflowLogger, get_prefect_context
 from .storage import StorageManager
 from .model_utils import load_bertopic_model, predict_topics
 from .data_utils import load_twcs_data, load_processed_data
+from .model_versioning import ModelVersionManager
 
 __all__ = [
     'load_config',
@@ -39,6 +40,7 @@ __all__ = [
     'load_bertopic_model',
     'predict_topics',
     'load_twcs_data',
-    'load_processed_data'
+    'load_processed_data',
+    'ModelVersionManager'
 ]
 

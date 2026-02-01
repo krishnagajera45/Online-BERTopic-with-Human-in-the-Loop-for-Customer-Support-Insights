@@ -16,6 +16,7 @@ from bertopic.vectorizers import ClassTfidfTransformer
 
 from src.utils import load_config, StorageManager
 from src.utils.ollama_client import generate_topic_label
+from src.utils.model_versioning import ModelVersionManager
 
 
 @task(name="initialize-bertopic-model", retries=1)
@@ -488,6 +489,164 @@ def update_model_online_task(
     
     logger.info(f"Model updated successfully with {len(set(topics))} topics")
     return topics, probs
+
+
+@task(name="merge-models", retries=1)
+def merge_models_task(
+    base_model: BERTopic,
+    batch_model: BERTopic,
+    min_similarity: float = 0.7,
+    batch_id: str = None
+) -> Tuple[BERTopic, Dict[str, Any]]:
+    """
+    Merge batch-trained model with base model using BERTopic.merge_models.
+    
+    This implements the "batch retrain + merge_models" pattern:
+    1. Train fresh model on new batch (batch_model)
+    2. Merge with base model (already includes HITL merges/splits)
+    3. Save merged as new base
+    
+    Args:
+        base_model: Base BERTopic model (includes HITL changes)
+        batch_model: Newly trained model on batch data
+        min_similarity: Minimum similarity threshold for merging topics (0.0-1.0)
+                       Higher = stricter (only very similar topics merge)
+        batch_id: Batch identifier for logging
+        
+    Returns:
+        Tuple of (merged_model, merge_info_dict)
+    """
+    logger = get_run_logger()
+    logger.info(f"Merging batch model with base model (min_similarity={min_similarity})")
+    logger.info(f"Base model topics: {len(set(base_model.topics_))}")
+    logger.info(f"Batch model topics: {len(set(batch_model.topics_))}")
+    
+    try:
+        # Merge models using BERTopic's merge_models
+        merged_model = BERTopic.merge_models(
+            models=[base_model, batch_model],
+            min_similarity=min_similarity
+        )
+        
+        merged_topics = len(set(merged_model.topics_))
+        logger.info(f"Merged model topics: {merged_topics}")
+        
+        # Create merge info for logging
+        merge_info = {
+            'merge_strategy': 'batch_retrain_merge_models',
+            'min_similarity': min_similarity,
+            'base_model_topics': len(set(base_model.topics_)),
+            'batch_model_topics': len(set(batch_model.topics_)),
+            'merged_model_topics': merged_topics,
+            'batch_id': batch_id,
+            'merged_at': datetime.now().isoformat()
+        }
+        
+        logger.info(f"Merge completed successfully. Merge info: {merge_info}")
+        return merged_model, merge_info
+    
+    except Exception as e:
+        logger.error(f"Error merging models: {e}", exc_info=True)
+        raise
+
+
+@task(name="train_batch_and_merge_models", retries=1)
+def train_batch_and_merge_models_task(
+    documents: List[str],
+    batch_id: str,
+    window_start: str,
+    window_end: str,
+    min_similarity: float = 0.7
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Train fresh model on batch and merge with base model (recommended approach).
+    
+    This implements the "batch retrain + merge_models" pattern:
+    1. Initialize fresh BERTopic model
+    2. Train on new batch documents
+    3. Load base model (includes all HITL merges/splits)
+    4. Merge batch model with base using merge_models
+    5. Save merged as new base
+    6. Archive previous base
+    
+    Args:
+        documents: New batch documents
+        batch_id: Batch identifier
+        window_start: Window start date
+        window_end: Window end date
+        min_similarity: Similarity threshold for merging topics
+        
+    Returns:
+        Tuple of (topics, probabilities)
+    """
+    logger = get_run_logger()
+    logger.info(f"Training batch model and merging with base (batch retrain + merge_models)")
+    
+    config = load_config()
+    version_manager = ModelVersionManager()
+    
+    # Step 1: Initialize and train fresh model on batch
+    logger.info("Step 1: Training fresh model on batch documents")
+    batch_model = initialize_bertopic_model_task(config)
+    topics, probs, batch_model = fit_seed_model_task(batch_model, documents)
+    logger.info(f"Batch model trained: {len(set(topics))} topics")
+    
+    # Step 2: Load base model (contains HITL merges/splits)
+    logger.info("Step 2: Loading base model")
+    base_model_path = version_manager.get_current_model_path()
+    
+    if Path(base_model_path).exists():
+        # Base model exists → merge with it
+        base_model = load_bertopic_model_task(base_model_path)
+        
+        # Step 3: Merge models
+        logger.info("Step 3: Merging batch model with base model")
+        merged_model, merge_info = merge_models_task(
+            base_model=base_model,
+            batch_model=batch_model,
+            min_similarity=min_similarity,
+            batch_id=batch_id
+        )
+        
+        # Step 4: Archive previous base
+        logger.info("Step 4: Archiving current model as previous")
+        archived_path, timestamp = version_manager.archive_current_as_previous()
+        logger.info(f"Archived to: {archived_path} (timestamp: {timestamp})")
+        
+        # Step 5: Save merged model as new base
+        logger.info("Step 5: Saving merged model as new base")
+        model_to_save = merged_model
+        merge_info['archived_previous_at'] = timestamp
+    else:
+        # No base model exists → use batch model as base
+        logger.info("No base model found → using batch model as base")
+        model_to_save = batch_model
+        merge_info = {
+            'merge_strategy': 'first_run_seed',
+            'batch_id': batch_id,
+            'saved_at': datetime.now().isoformat()
+        }
+    
+    # Save model
+    logger.info("Saving model to disk")
+    save_bertopic_model_task(model_to_save, base_model_path)
+    
+    # Save merge metadata
+    version_manager.save_model_metadata(base_model_path, merge_info)
+    
+    # Extract and save topic metadata
+    logger.info("Extracting and saving topic metadata")
+    topics_metadata = extract_topic_metadata_task(
+        model_to_save, batch_id, window_start, window_end, config
+    )
+    save_topic_metadata_task(topics_metadata)
+    
+    # Get final topic assignments from the merged/saved model
+    logger.info("Getting final topic assignments from merged model")
+    final_topics, final_probs = transform_documents_task(model_to_save, documents)
+    
+    logger.info(f"Batch retrain + merge_models completed: {len(set(final_topics))} final topics")
+    return final_topics, final_probs
 
 
 @task(name="archive_model")

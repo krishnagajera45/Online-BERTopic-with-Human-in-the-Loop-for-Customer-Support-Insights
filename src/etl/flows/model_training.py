@@ -1,9 +1,13 @@
-"""Prefect flow for model training (online learning)."""
+"""Prefect flow for model training (batch retrain + merge_models)."""
 from prefect import flow, get_run_logger
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from etl.tasks.model_tasks import train_seed_model_task, update_model_online_task, archive_model_task
+from src.etl.tasks.model_tasks import (
+    train_seed_model_task,
+    train_batch_and_merge_models_task,
+    archive_model_task
+)
 from src.utils import load_config
 from src.utils import StorageManager
 
@@ -16,14 +20,19 @@ def model_training_flow(
     window_end: str
 ):
     """
-    Prefect flow for model training (automatically detects seed vs online update).
+    Prefect flow for model training using batch retrain + merge_models approach.
     
-    This flow automatically:
-    1. Checks if model exists
-    2. If exists → Archives and updates (online learning)
-    3. If not exists → Trains seed model
-    4. Saves model and metadata
-    5. Saves document assignments
+    This flow implements the recommended pattern:
+    1. If first run (no model exists):
+       - Train seed model on batch
+    2. If model exists:
+       - Train fresh model on new batch
+       - Merge with base model (which includes all HITL merges/splits)
+       - Save merged as new base
+    
+    The base model is always the merged artifact that includes:
+    - All HITL merges/splits from users
+    - Topics from all previous batches
     
     Args:
         documents: List of document texts
@@ -36,7 +45,7 @@ def model_training_flow(
     """
     logger = get_run_logger()
     
-    logger.info(f"Starting model training flow")
+    logger.info(f"Starting model training flow (batch retrain + merge_models)")
     logger.info(f"Batch: {batch_id}")
     logger.info(f"Window: {window_start} to {window_end}")
     logger.info(f"Documents: {len(documents)}")
@@ -44,23 +53,20 @@ def model_training_flow(
     config = load_config()
     storage = StorageManager(config)
     
-    # Automatically detect if this is initial training or update
+    # Automatically detect if this is initial training or batch retrain + merge
     model_exists = Path(config.storage.current_model_path).exists()
     
     if model_exists:
-        # Model exists → Update with new data (online learning)
-        logger.info("Existing model found → Performing online update")
+        # Model exists → Use batch retrain + merge_models pattern
+        logger.info("Existing model found → Using batch retrain + merge_models approach")
+        logger.info("This will train fresh on batch and merge with base (includes HITL changes)")
         
-        # Archive current model before update
-        logger.info("Archiving current model as previous")
-        archive_model_task()
-        
-        # Update model online
-        topics, probs = update_model_online_task(
+        topics, probs = train_batch_and_merge_models_task(
             documents=documents,
             batch_id=batch_id,
             window_start=window_start,
-            window_end=window_end
+            window_end=window_end,
+            min_similarity=0.7  # Tunable parameter: higher = stricter merging
         )
     else:
         # No model → Train seed model

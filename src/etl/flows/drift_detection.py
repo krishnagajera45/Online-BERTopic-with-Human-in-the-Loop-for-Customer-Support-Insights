@@ -2,7 +2,7 @@
 from prefect import flow, get_run_logger
 from pathlib import Path
 from datetime import datetime
-from etl.tasks.drift_tasks import (
+from src.etl.tasks.drift_tasks import (
     load_bertopic_models_task,
     calculate_prevalence_change_task,
     calculate_centroid_shift_task,

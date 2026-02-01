@@ -76,3 +76,4 @@ tests/
 docker-compose.yml
 
 all.md
+models/*

@@ -459,4 +459,78 @@ def get_prefect_context() -> Dict[str, Optional[str]]:
             "flow_run_name": None,
             "flow_run_url": None,
             "flow_name": None
-        }
+        }    
+    def log_merge_models_operation(
+        self,
+        merge_info: Dict[str, Any],
+        base_model_topics: int = None,
+        batch_model_topics: int = None,
+        merged_model_topics: int = None
+    ):
+        """
+        Log BERTopic.merge_models operation to MLflow.
+        
+        Args:
+            merge_info: Dictionary with merge operation details
+            base_model_topics: Number of topics in base model
+            batch_model_topics: Number of topics in batch model
+            merged_model_topics: Number of topics in merged model
+        """
+        logger.info("Logging merge_models operation to MLflow")
+        
+        # Log merge operation parameters
+        mlflow.log_param("merge_strategy", merge_info.get('merge_strategy', 'unknown'))
+        mlflow.log_param("min_similarity", merge_info.get('min_similarity', 0.7))
+        mlflow.log_param("batch_id", merge_info.get('batch_id', 'N/A'))
+        
+        # Log topic counts
+        if base_model_topics is not None:
+            mlflow.log_metric("base_model_topics", base_model_topics)
+        if batch_model_topics is not None:
+            mlflow.log_metric("batch_model_topics", batch_model_topics)
+        if merged_model_topics is not None:
+            mlflow.log_metric("merged_model_topics", merged_model_topics)
+        
+        # Log archived version info if available
+        if merge_info.get('archived_previous_at'):
+            mlflow.log_param("archived_previous_timestamp", merge_info['archived_previous_at'])
+        
+        logger.info(f"✓ Logged merge_models operation: {merge_info}")
+    
+    def log_hitl_operation(
+        self,
+        action_type: str,
+        topic_id: int = None,
+        topic_ids: list = None,
+        new_label: str = None,
+        archived_version_timestamp: str = None
+    ):
+        """
+        Log HITL (Human-in-the-Loop) operation to MLflow.
+        
+        Args:
+            action_type: Type of HITL action (merge, split, relabel, etc.)
+            topic_id: Single topic ID (for relabel)
+            topic_ids: List of topic IDs (for merge/split)
+            new_label: New label applied
+            archived_version_timestamp: Timestamp of archived model version
+        """
+        logger.info(f"Logging HITL operation to MLflow: {action_type}")
+        
+        mlflow.log_param("hitl_action_type", action_type)
+        
+        if topic_id is not None:
+            mlflow.log_param("hitl_topic_id", topic_id)
+        
+        if topic_ids is not None:
+            mlflow.log_param("hitl_topic_ids", str(topic_ids))
+        
+        if new_label is not None:
+            mlflow.log_param("hitl_new_label", new_label)
+        
+        if archived_version_timestamp is not None:
+            mlflow.log_param("hitl_archived_version", archived_version_timestamp)
+        
+        mlflow.log_metric("hitl_timestamp", datetime.now().timestamp())
+        
+        logger.info(f"✓ Logged HITL operation: {action_type}")

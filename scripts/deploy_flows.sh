@@ -19,7 +19,7 @@ if ! prefect work-pool inspect "$WORK_POOL_NAME" >/dev/null 2>&1; then
 fi
 
 # Deploy flows
-python etl/schedules/deploy.py
+python src/etl/schedules/deploy.py
 
 echo ""
 echo "✅ Flows deployed successfully!"

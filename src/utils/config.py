@@ -40,7 +40,6 @@ class StorageConfig:
     doc_assignments_path: str
     alerts_path: str
     audit_log_path: str
-    batch_log_path: str
     current_model_path: str
     previous_model_path: str
     state_file: str

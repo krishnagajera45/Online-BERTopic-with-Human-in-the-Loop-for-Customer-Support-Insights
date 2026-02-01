@@ -97,13 +97,22 @@ def calculate_centroid_shift_task(
         current_model: Current BERTopic model
         previous_model: Previous BERTopic model
         current_docs: Current documents
-        previous_docs: Previous documents
+        previous_docs: Previous documents (can be empty)
         
     Returns:
-        Dictionary mapping topic_id to shift metrics
+        Dictionary mapping topic_id to shift metrics (empty dict if no previous docs)
     """
     logger = get_run_logger()
     logger.info("Calculating topic centroid shifts")
+    
+    # Handle empty previous_docs gracefully
+    if not previous_docs or len(previous_docs) == 0:
+        logger.warning("No previous documents available for centroid shift calculation. Skipping.")
+        return {}
+    
+    if not current_docs or len(current_docs) == 0:
+        logger.warning("No current documents available for centroid shift calculation. Skipping.")
+        return {}
     
     try:
         centroid_shifts = {}

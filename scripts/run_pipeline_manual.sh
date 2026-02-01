@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.." || exit
 source venv/bin/activate
 
 # Run the pipeline
-python -c "from etl.flows.complete_pipeline import complete_pipeline_flow; complete_pipeline_flow(is_initial=False)"
+python -m src.etl.flows.complete_pipeline
 
 echo ""
 echo "✅ Pipeline completed!"

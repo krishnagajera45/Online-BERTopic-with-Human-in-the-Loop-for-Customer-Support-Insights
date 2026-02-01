@@ -5,10 +5,11 @@ import sys
 from prefect.schedules import Cron
 
 # Ensure project root is on sys.path when running as a script
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# src/etl/schedules/deploy.py → src/etl/schedules/ → src/etl/ → src/ → PROJECT_ROOT
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from etl.flows.complete_pipeline import complete_pipeline_flow
+from src.etl.flows.complete_pipeline import complete_pipeline_flow
 from src.utils import load_config
 
 

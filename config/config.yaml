@@ -25,7 +25,6 @@ storage:
   doc_assignments_path: "outputs/assignments/doc_assignments.csv"
   alerts_path: "outputs/alerts/drift_alerts.csv"
   audit_log_path: "outputs/audit/hitl_audit_log.csv"
-  batch_log_path: "outputs/audit/batch_run_log.csv"
   current_model_path: "models/current/bertopic_model.pkl"
   previous_model_path: "models/previous/bertopic_model.pkl"
   state_file: "data/state/processing_state.json"

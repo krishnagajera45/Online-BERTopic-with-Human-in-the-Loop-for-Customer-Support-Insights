@@ -37,7 +37,6 @@ class StorageManager:
         self.assignments_path = Path(config.storage.doc_assignments_path)
         self.alerts_path = Path(config.storage.alerts_path)
         self.audit_path = Path(config.storage.audit_log_path)
-        self.batch_log_path = Path(config.storage.batch_log_path)
         self.state_path = Path(config.storage.state_file)
         
         # Ensure directories exist
@@ -46,7 +45,7 @@ class StorageManager:
     def _ensure_dirs(self):
         """Create storage directories if they don't exist."""
         for path in [self.topics_path, self.assignments_path, self.alerts_path, 
-                     self.audit_path, self.batch_log_path, self.state_path]:
+                     self.audit_path, self.state_path]:
             path.parent.mkdir(parents=True, exist_ok=True)
     
     # ========== Topic Metadata ==========
@@ -247,34 +246,6 @@ class StorageManager:
             logger.error(f"Error loading audit log: {e}", exc_info=True)
             return pd.DataFrame()
     
-    # ========== Batch Run Log ==========
-    
-    def log_batch_run(self, batch_info: Dict[str, Any]):
-        """
-        Log batch-level processing details to CSV.
-        
-        Expected keys: batch_id, window_start, window_end, documents_processed,
-        is_initial, model_stage, num_topics, created_at (optional)
-        """
-        try:
-            batch_info = dict(batch_info)
-            batch_info.setdefault('created_at', datetime.now().isoformat())
-            df = pd.DataFrame([batch_info])
-            file_exists = self.batch_log_path.exists()
-            
-            df.to_csv(
-                self.batch_log_path,
-                mode='a',
-                header=not file_exists,
-                index=False
-            )
-            
-            logger.info(f"Logged batch run: {batch_info.get('batch_id')}")
-        
-        except Exception as e:
-            logger.error(f"Error logging batch run: {e}", exc_info=True)
-            raise
-
     # ========== Processing State ==========
     
     def save_processing_state(self, state: Dict[str, Any]):

@@ -2,7 +2,7 @@
 from typing import Optional
 from prefect import flow, get_run_logger
 from datetime import datetime
-from etl.tasks.data_tasks import (
+from src.etl.tasks.data_tasks import (
     load_data_window_task,
     clean_text_column_task,
     add_document_ids_task,
