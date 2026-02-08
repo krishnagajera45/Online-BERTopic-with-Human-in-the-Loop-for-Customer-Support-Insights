@@ -9,8 +9,7 @@ from src.utils import clean_text, load_twcs_data
 def load_data_window_task(
     csv_path: str,
     start_date: str = None,
-    end_date: str = None,
-    nrows: int = None
+    end_date: str = None
 ) -> pd.DataFrame:
     """
     Load data window from preprocessed CSV.
@@ -19,7 +18,6 @@ def load_data_window_task(
         csv_path: Path to CSV file
         start_date: Start date for filtering
         end_date: End date for filtering
-        nrows: Number of rows to read (for testing)
         
     Returns:
         DataFrame with loaded data
@@ -32,8 +30,7 @@ def load_data_window_task(
     df = load_twcs_data(
         csv_path=csv_path,
         start_date=start_date,
-        end_date=end_date,
-        nrows=nrows
+        end_date=end_date
     )
     
     logger.info(f"Loaded {len(df)} rows")
@@ -99,7 +96,7 @@ def add_document_ids_task(df: pd.DataFrame) -> pd.DataFrame:
     if 'tweet_id' in df.columns:
         df['doc_id'] = 'tweet_' + df['tweet_id'].astype(str)
     else:
-        df['doc_id'] = 'doc_' + pd.Series(range(len(df))).astype(str)
+        raise ValueError("tweet_id column is required for doc_id assignment. Please ensure all data includes tweet_id.")
     
     logger.info(f"Added {len(df)} document IDs")
     return df
@@ -132,7 +129,9 @@ def save_to_parquet_task(df: pd.DataFrame, output_path: str) -> str:
 def validate_data_task(df: pd.DataFrame, min_docs: int = 10) -> bool:
     """
     Validate that data meets minimum requirements.
-    
+    Valiadtion checks:
+        - Minimum number of documents (min_docs)
+        - Required columns: doc_id, text_cleaned, created_at
     Args:
         df: DataFrame to validate
         min_docs: Minimum number of documents required

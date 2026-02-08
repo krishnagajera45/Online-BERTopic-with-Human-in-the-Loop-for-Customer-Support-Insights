@@ -9,8 +9,7 @@ logger = setup_logger(__name__, "logs/data_utils.log")
 def load_twcs_data(
     csv_path: str,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    nrows: Optional[int] = None
+    end_date: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Load pre-processed TwCS data from CSV with optional date filtering.
@@ -25,7 +24,6 @@ def load_twcs_data(
         csv_path: Path to preprocessed TwCS CSV file
         start_date: Start date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
         end_date: End date for filtering (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
-        nrows: Number of rows to read (for testing)
         
     Returns:
         DataFrame with TwCS data
@@ -34,7 +32,7 @@ def load_twcs_data(
     
     try:
         # Read CSV - timestamps are already in datetime format from preprocessing
-        df = pd.read_csv(csv_path, nrows=nrows, parse_dates=['created_at'])
+        df = pd.read_csv(csv_path, parse_dates=['created_at'])
         logger.info(f"Loaded {len(df)} rows from CSV")
         
         # Ensure timezone-aware datetimes (should already be UTC from preprocessing)

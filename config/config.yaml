@@ -4,7 +4,6 @@ data:
   sample_csv_path: "data/sample/twcs_sample.csv"
   timestamp_column: "created_at"
   text_column: "text"
-  inbound_column: "inbound"
 
 model:
   embedding_model: "all-MiniLM-L6-v2"
@@ -19,6 +18,8 @@ model:
   max_df: 1.0  # Allow all words for small datasets
   ngram_range: [1, 2]
   top_n_words: 10  # Number of top words per topic
+  min_similarity: 0.7  # Minimum similarity threshold for merging topics (0.0-1.0)
+  top_words_for_label: 3  # Number of top words used for custom label generation
 
 storage:
   topics_metadata_path: "outputs/topics/topics_metadata.json"

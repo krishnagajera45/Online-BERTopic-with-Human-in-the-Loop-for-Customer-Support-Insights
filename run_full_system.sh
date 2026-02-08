@@ -64,20 +64,20 @@ if [ ! -f "data/sample/twcs_sample.csv" ] && [ ! -f "data/raw/twcs_cleaned.csv" 
     fi
 fi
 
-# Check if model exists, train if not
-if [ ! -f "models/current/bertopic_model.pkl" ]; then
-    echo -e "${YELLOW}No trained model found. Running initial training...${NC}"
-    echo "This may take a few minutes depending on your data size."
-    echo ""
+# # Check if model exists, train if not
+# if [ ! -f "models/current/bertopic_model.pkl" ]; then
+#     echo -e "${YELLOW}No trained model found. Running initial training...${NC}"
+#     echo "This may take a few minutes depending on your data size."
+#     echo ""
     
-    if [ -f "data/raw/twcs_cleaned.csv" ] || [ -f "data/sample/twcs_sample.csv" ]; then
-        # Pipeline auto-detects that no model exists and trains seed model
-        python -m src.etl.flows.complete_pipeline
-        echo -e "${GREEN}✓ Initial model trained${NC}"
-    else
-        echo -e "${YELLOW}Skipping model training - no data available${NC}"
-    fi
-fi
+#     if [ -f "data/raw/twcs_cleaned.csv" ] || [ -f "data/sample/twcs_sample.csv" ]; then
+#         # Pipeline auto-detects that no model exists and trains seed model
+#         python -m src.etl.flows.complete_pipeline
+#         echo -e "${GREEN}✓ Initial model trained${NC}"
+#     else
+#         echo -e "${YELLOW}Skipping model training - no data available${NC}"
+#     fi
+# fi
 
 echo ""
 echo "=================================================="

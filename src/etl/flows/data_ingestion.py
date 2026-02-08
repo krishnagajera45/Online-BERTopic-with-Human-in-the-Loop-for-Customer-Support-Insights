@@ -17,7 +17,6 @@ def data_ingestion_flow(
     output_parquet: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    filter_inbound: bool = True,
     min_docs: int = 10
 ):
     """
@@ -35,8 +34,7 @@ def data_ingestion_flow(
         output_parquet: Path to output Parquet
         start_date: Start date for filtering
         end_date: End date for filtering
-        filter_inbound: Deprecated (data already filtered)
-        min_docs: Minimum documents required
+        min_docs: Minimum documents required per batch (for validation) 
         
     Returns:
         Processed DataFrame
@@ -53,11 +51,8 @@ def data_ingestion_flow(
     df = load_data_window_task(
         csv_path=csv_path,
         start_date=start_date,
-        end_date=end_date,
-        nrows=None
+        end_date=end_date
     )
-    
-    # Step 2: Clean text (task)
     logger.info("Step 2: Cleaning text")
     df = clean_text_column_task(
         df=df,
@@ -87,7 +82,6 @@ if __name__ == "__main__":
     # Test the flow
     df = data_ingestion_flow(
         csv_path="data/sample/twcs_sample.csv",
-        output_parquet="data/processed/test.parquet",
-        filter_inbound=True
+        output_parquet="data/processed/test.parquet"
     )
     print(f"Processed {len(df)} documents")

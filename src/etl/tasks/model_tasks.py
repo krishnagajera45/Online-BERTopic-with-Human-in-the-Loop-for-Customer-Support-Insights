@@ -270,7 +270,7 @@ def extract_topic_metadata_task(
     config: Any = None
 ) -> List[Dict[str, Any]]:
     """
-    Extract topic metadata from model (logic moved from BERTopicOnlineWrapper).
+    Extract topic metadata from model.
     
     Args:
         model: BERTopic model
@@ -300,10 +300,13 @@ def extract_topic_metadata_task(
         
         # Get top words for this topic
         topic_words = model.get_topic(topic_id)
-        top_words = [word for word, _ in topic_words[:10]] if topic_words else []
-        
-        # Generate custom label from top 3 words
-        custom_label = ", ".join([word for word, _ in topic_words[:3]]) if topic_words else f"Topic {topic_id}"
+        if topic_words:
+            top_words = [word for word, _ in topic_words[:config.model.top_n_words]]
+            # Generate custom label from configurable top words for label
+            custom_label = ", ".join([word for word, _ in topic_words[:config.model.top_words_for_label]])
+        else:
+            top_words = []
+            custom_label = f"Topic {topic_id}"
         gpt_label = None
         gpt_summary = None
 
@@ -495,7 +498,7 @@ def update_model_online_task(
 def merge_models_task(
     base_model: BERTopic,
     batch_model: BERTopic,
-    min_similarity: float = 0.7,
+    min_similarity: Optional[float] = None,
     batch_id: str = None
 ) -> Tuple[BERTopic, Dict[str, Any]]:
     """
@@ -517,9 +520,15 @@ def merge_models_task(
         Tuple of (merged_model, merge_info_dict)
     """
     logger = get_run_logger()
+    
+    # Load config for min_similarity if not provided
+    if min_similarity is None:
+        config = load_config()
+        min_similarity = config.model.min_similarity
+    
     logger.info(f"Merging batch model with base model (min_similarity={min_similarity})")
-    logger.info(f"Base model topics: {len(set(base_model.topics_))}")
-    logger.info(f"Batch model topics: {len(set(batch_model.topics_))}")
+    logger.info(f"Base model topics: {len(base_model.get_topics())}")
+    logger.info(f"Batch model topics: {len(batch_model.get_topics())}")
     
     try:
         # Merge models using BERTopic's merge_models
@@ -528,15 +537,18 @@ def merge_models_task(
             min_similarity=min_similarity
         )
         
-        merged_topics = len(set(merged_model.topics_))
+        merged_topics = len(merged_model.get_topics())
         logger.info(f"Merged model topics: {merged_topics}")
         
         # Create merge info for logging
+        base_model_topics = len(base_model.get_topics())
+        batch_model_topics = len(batch_model.get_topics())
+        
         merge_info = {
             'merge_strategy': 'batch_retrain_merge_models',
             'min_similarity': min_similarity,
-            'base_model_topics': len(set(base_model.topics_)),
-            'batch_model_topics': len(set(batch_model.topics_)),
+            'base_model_topics': base_model_topics,
+            'batch_model_topics': batch_model_topics,
             'merged_model_topics': merged_topics,
             'batch_id': batch_id,
             'merged_at': datetime.now().isoformat()
@@ -556,7 +568,7 @@ def train_batch_and_merge_models_task(
     batch_id: str,
     window_start: str,
     window_end: str,
-    min_similarity: float = 0.7
+    min_similarity: Optional[float] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Train fresh model on batch and merge with base model (recommended approach).
@@ -585,6 +597,10 @@ def train_batch_and_merge_models_task(
     config = load_config()
     version_manager = ModelVersionManager()
     
+    # Use config min_similarity if not provided
+    if min_similarity is None:
+        min_similarity = config.model.min_similarity
+    
     # Step 1: Initialize and train fresh model on batch
     logger.info("Step 1: Training fresh model on batch documents")
     batch_model = initialize_bertopic_model_task(config)
@@ -608,7 +624,7 @@ def train_batch_and_merge_models_task(
             batch_id=batch_id
         )
         
-        # Step 4: Archive previous base
+        # Step 4: Archive previous base(copy previous model in to previous and archive folder with metadata)
         logger.info("Step 4: Archiving current model as previous")
         archived_path, timestamp = version_manager.archive_current_as_previous()
         logger.info(f"Archived to: {archived_path} (timestamp: {timestamp})")
@@ -630,22 +646,24 @@ def train_batch_and_merge_models_task(
     # Save model
     logger.info("Saving model to disk")
     save_bertopic_model_task(model_to_save, base_model_path)
-    
+
+    # Note: Cumulative corpus is maintained by model_training_flow
+    # Each batch appends its documents to the corpus file
+
     # Save merge metadata
     version_manager.save_model_metadata(base_model_path, merge_info)
-    
+
     # Extract and save topic metadata
     logger.info("Extracting and saving topic metadata")
     topics_metadata = extract_topic_metadata_task(
         model_to_save, batch_id, window_start, window_end, config
     )
     save_topic_metadata_task(topics_metadata)
-    
+
     # Get final topic assignments from the merged/saved model
     logger.info("Getting final topic assignments from merged model")
     final_topics, final_probs = transform_documents_task(model_to_save, documents)
-    
-    logger.info(f"Batch retrain + merge_models completed: {len(set(final_topics))} final topics")
+
     return final_topics, final_probs
 
 

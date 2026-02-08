@@ -109,11 +109,11 @@ def complete_pipeline_flow(
             output_parquet=parquet_path,
             start_date=start_date,
             end_date=end_date,
-            filter_inbound=True,
             min_docs=5  # Reduced for small datasets
         )
         
         documents = df['text_cleaned'].tolist()
+        doc_ids = df['doc_id'].tolist()
         logger.info(f"Data ingestion complete: {len(documents)} documents")
         
         # Log step 1 timing and batch statistics
@@ -133,6 +133,7 @@ def complete_pipeline_flow(
         
         topics, probs = model_training_flow(
             documents=documents,
+            doc_ids=doc_ids,
             batch_id=batch_id,
             window_start=start_date,
             window_end=end_date
@@ -225,6 +226,36 @@ def complete_pipeline_flow(
         
         # Calculate total pipeline duration
         pipeline_duration = time.time() - pipeline_start_time
+        
+        # Post-pipeline verification: Check corpus and assignments alignment for HITL readiness
+        logger.info("=" * 80)
+        logger.info("POST-PIPELINE VERIFICATION")
+        logger.info("=" * 80)
+        try:
+            import json
+            corpus_path = Path(config.storage.current_model_path).parent / (Path(config.storage.current_model_path).stem + "_corpus.json")
+            assignments_path = Path("outputs/assignments/doc_assignments.csv")
+            
+            if corpus_path.exists() and assignments_path.exists():
+                with open(corpus_path, 'r') as f:
+                    corpus = json.load(f)
+                assignments_df = pd.read_csv(assignments_path)
+                
+                logger.info(f"Corpus documents:     {len(corpus)}")
+                logger.info(f"Assignments rows:     {len(assignments_df)}")
+                
+                if len(corpus) == len(assignments_df):
+                    logger.info("✅ HITL READY: Corpus and assignments are perfectly aligned")
+                    logger.info("   Topic merge/split operations will work correctly")
+                else:
+                    logger.warning(f"⚠️  ALIGNMENT ISSUE: {len(corpus)} corpus vs {len(assignments_df)} assignments")
+                    logger.warning("   HITL operations may fail")
+            else:
+                logger.warning("⚠️  Could not verify alignment (files missing)")
+        except Exception as e:
+            logger.warning(f"Verification check failed: {e}")
+        
+        logger.info("=" * 80)
         
         # Log pipeline summary
         mlflow_logger.log_pipeline_summary(

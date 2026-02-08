@@ -13,7 +13,6 @@ class DataConfig:
     sample_csv_path: str
     timestamp_column: str = "created_at"
     text_column: str = "text"
-    inbound_column: str = "inbound"
 
 
 @dataclass
@@ -31,6 +30,8 @@ class ModelConfig:
     max_df: float = 0.95
     ngram_range: list = field(default_factory=lambda: [1, 2])
     top_n_words: int = 10
+    min_similarity: float = 0.7
+    top_words_for_label: int = 3
 
 
 @dataclass
