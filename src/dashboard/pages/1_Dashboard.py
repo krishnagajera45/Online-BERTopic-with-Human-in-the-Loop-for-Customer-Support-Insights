@@ -1,25 +1,74 @@
 """
-TwCS Topic Modeling System — Entry Point.
+Dashboard — TwCS Online Topic Modeling System.
 
-This is the landing page that redirects to Project Overview on first visit.
+Central command center: cumulative vs current-batch statistics, batch explorer
+with synced bubble timeline, topic distribution, keyword heatmap, and trends.
 """
 import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import sys, json, pickle
 from pathlib import Path
-import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from src.dashboard.utils.api_client import APIClient
+from src.dashboard.components.theme import (
+    inject_custom_css,
+    page_header,
+    metric_card,
+    render_footer,
+)
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="TwCS Topic Modeling",
-    page_icon="🧠",
+    page_title="Dashboard · TwCS Topic Modeling",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_custom_css()
 
-# ── Redirect to Project Overview ─────────────────────────────────────────────
-st.switch_page("pages/0_Project_Overview.py")
+# ── Session state / API ──────────────────────────────────────────────────────
+if "api_client" not in st.session_state:
+    st.session_state.api_client = APIClient()
+api = st.session_state.api_client
 
+page_header(
+    "Dashboard",
+    "Cumulative and per-batch statistics for the customer-support topic landscape — powered by BERTopic.",
+    "📊",
+)
+
+# ── Connectivity ──────────────────────────────────────────────────────────────
+if not api.health_check():
+    st.error("⚠️ Cannot reach the FastAPI backend at **http://localhost:8000**.")
+    st.info("Start it with: `python -m src.api.main`")
+    render_footer()
+    st.stop()
+
+# ── Fetch all data ────────────────────────────────────────────────────────────
+try:
+    topics = api.get_topics()
+except Exception as e:
+    st.error(f"Could not load topics: {e}")
+    render_footer()
+    st.stop()
+
+try:
+    batch_stats = api.get_batch_stats()
+except Exception:
+    batch_stats = {"cumulative": {}, "batches": []}
+
+try:
+    trends_raw = api.get_trends()
+except Exception:
+    trends_raw = []
+
+cumulative = batch_stats.get("cumulative", {})
+batches_info = batch_stats.get("batches", [])
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  SECTION 1 — Overall vs Current Batch Statistics  (side-by-side)
@@ -84,6 +133,47 @@ with overall_col:
             title=dict(text="Documents Processed Over Time", font=dict(size=13, color="#B2BEC3")),
         )
         st.plotly_chart(fig_spark, use_container_width=True)
+    
+    # ── Topic evolution sparkline — topics per batch ───────
+    if batches_info and trends_raw:
+        # Calculate topics per batch from trends
+        tdf = pd.DataFrame(trends_raw)
+        topic_counts = tdf.groupby("batch_id")["topic_id"].nunique().reset_index()
+        topic_counts.columns = ["batch_id", "topics"]
+        
+        # Merge with batches to maintain order
+        batch_df = pd.DataFrame(batches_info)
+        batch_df = batch_df.merge(topic_counts, on="batch_id", how="left", suffixes=("", "_from_trends"))
+        batch_df["topics_from_trends"] = batch_df["topics_from_trends"].fillna(0).astype(int)
+        
+        fig_topic_evo = go.Figure()
+        fig_topic_evo.add_trace(go.Scatter(
+            x=list(range(1, len(batch_df) + 1)),
+            y=batch_df["topics_from_trends"],
+            mode="lines+markers+text",
+            text=batch_df["topics_from_trends"].astype(str),
+            textposition="top center",
+            line=dict(color="#00CEC9", width=3),
+            marker=dict(size=8, color="#6C5CE7"),
+            fill="tozeroy",
+            fillcolor="rgba(0,206,201,0.10)",
+        ))
+        fig_topic_evo.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            height=190,
+            margin=dict(l=30, r=10, t=25, b=30),
+            xaxis=dict(
+                title="Batch #",
+                dtick=1,
+                showgrid=False,
+            ),
+            yaxis=dict(title="Topics Discovered", showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
+            showlegend=False,
+            title=dict(text="Topic Evolution Over Batches", font=dict(size=13, color="#B2BEC3")),
+        )
+        st.plotly_chart(fig_topic_evo, use_container_width=True)
 
 # ── DIVIDER ───────────────────────────────────────────────────────────────────
 with divider_col:
@@ -95,13 +185,31 @@ with divider_col:
 # ── RIGHT: Current (latest) batch ────────────────────────────────────────────
 with batch_col:
     st.markdown("### 🔄 Current Batch")
-    if batches_info:
-        latest = batches_info[-1]
-        st.caption(f"Most recently processed batch.")
+    if batches_info and trends_raw:
+        # Calculate topics from trends data for accuracy
+        trends_df_current = pd.DataFrame(trends_raw)
+        
+        # Find the most recent batch with topics > 0 (skip test batches)
+        latest = None
+        for batch in reversed(batches_info):
+            batch_id = batch.get("batch_id")
+            topics_count = len(trends_df_current[trends_df_current["batch_id"] == batch_id]["topic_id"].unique())
+            if topics_count > 0:
+                latest = batch
+                latest["topics_actual"] = topics_count
+                break
+        
+        # Fallback to absolute latest if no batch has topics
+        if not latest:
+            latest = batches_info[-1]
+            batch_id = latest.get("batch_id")
+            latest["topics_actual"] = len(trends_df_current[trends_df_current["batch_id"] == batch_id]["topic_id"].unique())
+        
+        st.caption(f"Most recently processed batch with topics.")
 
         b1, b2 = st.columns(2)
         with b1:
-            metric_card("📌", latest["topics"], "Topics in This Batch")
+            metric_card("📌", latest["topics_actual"], "Topics in This Batch")
         with b2:
             metric_card("📄", f"{latest['docs']:,}", "Docs in This Batch")
 
@@ -149,9 +257,17 @@ if trends_raw:
     trends_df = pd.DataFrame(trends_raw)
     sorted_batches = sorted(trends_df["batch_id"].unique())
 
-    # Initialise shared batch index
+    # Initialise shared batch index to latest batch with topics
     if "batch_idx" not in st.session_state:
-        st.session_state.batch_idx = len(sorted_batches) - 1
+        # Find the latest batch that has topics > 0
+        latest_idx = len(sorted_batches) - 1
+        for i in range(len(sorted_batches) - 1, -1, -1):
+            batch_id = sorted_batches[i]
+            batch_info = next((b for b in batches_info if b["batch_id"] == batch_id), {})
+            if batch_info.get("topics", 0) > 0:
+                latest_idx = i
+                break
+        st.session_state.batch_idx = latest_idx
 
     st.markdown("### 🎛️ Batch Control Panel")
     st.markdown("""
@@ -162,31 +278,53 @@ if trends_raw:
     </div>
     """, unsafe_allow_html=True)
 
-    # Interactive slider + quick nav
-    slider_col, btn_col = st.columns([4, 1])
-    with slider_col:
-        batch_idx_new = st.slider(
-            "Select Batch",
-            min_value=0,
-            max_value=len(sorted_batches) - 1,
-            value=st.session_state.batch_idx,
-            format="Batch %d",
-            key="batch_slider",
-        )
-        if batch_idx_new != st.session_state.batch_idx:
-            st.session_state.batch_idx = batch_idx_new
-            st.rerun()
+    # Handle single batch vs multiple batches
+    if len(sorted_batches) == 1:
+        # Single batch - just show info, no slider/buttons needed
+        st.info("📌 Currently viewing the only batch available. Run the pipeline to process more batches.")
+    else:
+        # Multiple batches - show slider + navigation buttons
+        slider_col, btn_col = st.columns([4, 1])
+        with slider_col:
+            batch_idx_new = st.slider(
+                "Select Batch",
+                min_value=0,
+                max_value=len(sorted_batches) - 1,
+                value=st.session_state.batch_idx,
+                format="Batch %d",
+            )
+            if batch_idx_new != st.session_state.batch_idx:
+                st.session_state.batch_idx = batch_idx_new
+                st.rerun()
 
-    with btn_col:
-        b1, b2 = st.columns(2)
-        with b1:
-            if st.button("⏮ First", use_container_width=True, key="first_btn"):
-                st.session_state.batch_idx = 0
-                st.rerun()
-        with b2:
-            if st.button("⏭ Latest", use_container_width=True, key="latest_btn"):
-                st.session_state.batch_idx = len(sorted_batches) - 1
-                st.rerun()
+        with btn_col:
+            b1, b2, b3, b4 = st.columns(4)
+            with b1:
+                if st.button("⏮", use_container_width=True, key="first_btn", help="First batch"):
+                    st.session_state.batch_idx = 0
+                    st.rerun()
+            with b2:
+                if st.button("◀", use_container_width=True, key="prev_btn", help="Previous batch"):
+                    if st.session_state.batch_idx > 0:
+                        st.session_state.batch_idx -= 1
+                        st.rerun()
+            with b3:
+                if st.button("▶", use_container_width=True, key="next_btn", help="Next batch"):
+                    if st.session_state.batch_idx < len(sorted_batches) - 1:
+                        st.session_state.batch_idx += 1
+                        st.rerun()
+            with b4:
+                if st.button("⏭", use_container_width=True, key="latest_btn", help="Latest batch"):
+                    # Find the latest batch that has topics > 0
+                    latest_idx = len(sorted_batches) - 1
+                    for i in range(len(sorted_batches) - 1, -1, -1):
+                        batch_id = sorted_batches[i]
+                        batch_info = next((b for b in batches_info if b["batch_id"] == batch_id), {})
+                        if batch_info.get("topics", 0) > 0:
+                            latest_idx = i
+                            break
+                    st.session_state.batch_idx = latest_idx
+                    st.rerun()
 
     sel_batch = sorted_batches[st.session_state.batch_idx]
 
@@ -195,7 +333,8 @@ if trends_raw:
     ws = batch_meta.get("window_start") or batch_meta.get("timestamp") or "—"
     we = batch_meta.get("window_end") or "—"
     docs_in_batch = batch_meta.get("docs", 0)
-    topics_in_batch = batch_meta.get("topics", 0)
+    # Get actual topic count from trends data for this batch
+    topics_in_batch = len(trends_df[trends_df["batch_id"] == sel_batch]["topic_id"].unique())
 
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, #1A1D23, #22262E); border: 1px solid #6C5CE7; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem;">
@@ -223,7 +362,45 @@ if trends_raw:
     batch_data = trends_df[trends_df["batch_id"] == sel_batch]
     topic_label_map = {t["topic_id"]: t.get("custom_label", f"Topic {t['topic_id']}") for t in topics}
 
-    # ── 2a  Topic distribution bar + pie ─────────────────────────────────────
+    # ── 2a  Topic Treemap for Selected Batch ─────────────────────────────────
+    st.markdown("### 🌳 Topic Hierarchy — Batch Overview")
+    st.caption("Proportional topic distribution for the selected batch — larger blocks = more documents.")
+    
+    # Filter topics present in current batch
+    batch_topic_ids = set(batch_data["topic_id"].unique())
+    batch_topics = [t for t in topics if t["topic_id"] in batch_topic_ids and t.get("count", 0) > 0]
+    
+    if batch_topics:
+        tree_df = pd.DataFrame([
+            {
+                "label": f"T{t['topic_id']} — {t.get('custom_label', '')}",
+                "count": batch_data[batch_data["topic_id"] == t["topic_id"]]["count"].sum(),
+                "keywords": ", ".join(t.get("top_words", [])[:5]),
+            }
+            for t in batch_topics
+        ])
+        tree_df = tree_df[tree_df["count"] > 0].sort_values("count", ascending=False)
+        
+        if not tree_df.empty:
+            fig_tree = px.treemap(
+                tree_df, path=["label"], values="count",
+                color="count", color_continuous_scale="Viridis",
+                hover_data=["keywords"],
+            )
+            fig_tree.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=10, b=10, l=10, r=10),
+                height=400,
+            )
+            fig_tree.update_traces(textposition="middle center", textfont_size=12)
+            st.plotly_chart(fig_tree, use_container_width=True)
+    else:
+        st.info("No topics found for this batch.")
+    
+    st.divider()
+
+    # ── 2b  Topic distribution bar + pie ─────────────────────────────────────
     dist_col, pie_col = st.columns([2, 1])
     with dist_col:
         bd_sorted = batch_data.sort_values("count", ascending=False)
@@ -258,7 +435,7 @@ if trends_raw:
 
     st.divider()
 
-    # ── 2b  Bubble Timeline (shows ONLY the selected batch – not overlapping) ─
+    # ── 2c  Bubble Timeline (shows ONLY the selected batch – not overlapping) ─
     st.markdown("### 🫧 Topic Bubble View")
     st.caption("Each bubble represents a topic in the selected batch. Size = document count.")
 
@@ -289,7 +466,7 @@ if trends_raw:
 
     st.divider()
 
-    # ── 2c  Trend line — topic counts across ALL batches ─────────────────────
+    # ── 2d  Trend line — topic counts across ALL batches ─────────────────────
     st.markdown("### 📈 Topic Trends Across Batches")
     st.caption("Line chart showing how each topic's document count evolves over batches.")
 
@@ -337,39 +514,6 @@ if trends_raw:
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
-    st.divider()
-
-    # ── 2d  Topic Keyword Heatmap (similarity matrix from API data) ──────────
-    st.markdown("### 🔥 Topic Keyword Similarity")
-    st.caption("Jaccard overlap of top keywords between topics — high overlap suggests merge candidates.")
-
-    heatmap_topics = [t for t in topics if t["topic_id"] in chosen_tids][:15]
-    if len(heatmap_topics) >= 2:
-        ids = [t["topic_id"] for t in heatmap_topics]
-        kw_sets = {t["topic_id"]: set(t.get("top_words", [])) for t in heatmap_topics}
-        matrix = []
-        for i in ids:
-            row = []
-            for j in ids:
-                si, sj = kw_sets.get(i, set()), kw_sets.get(j, set())
-                row.append(len(si & sj) / len(si | sj) if (si | sj) else 0)
-            matrix.append(row)
-
-        labels = [f"T{i}" for i in ids]
-        fig_hm = go.Figure(go.Heatmap(
-            z=matrix, x=labels, y=labels,
-            colorscale="Viridis", colorbar=dict(title="Jaccard"),
-        ))
-        fig_hm.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            height=400,
-            margin=dict(t=10, b=30),
-        )
-        st.plotly_chart(fig_hm, use_container_width=True)
-    else:
-        st.info("Select at least 2 topics to see the similarity heatmap.")
-
 else:
     st.info("Run the ETL pipeline to generate batch-level data.")
 
@@ -379,32 +523,10 @@ st.divider()
 #  SECTION 3 — Top Topics  (always visible)
 # ──────────────────────────────────────────────────────────────────────────────
 st.markdown("### 🏆 Top Topics by Size")
+st.caption("Most significant topics across all batches — keyword highlights and summaries.")
 
 if topics:
     sorted_topics = sorted(topics, key=lambda x: x.get("count", 0), reverse=True)
-
-    # Treemap
-    tree_df = pd.DataFrame([
-        {
-            "label": f"T{t['topic_id']} — {t.get('custom_label', '')}",
-            "count": t.get("count", 0),
-            "keywords": ", ".join(t.get("top_words", [])[:5]),
-        }
-        for t in sorted_topics if t.get("count", 0) > 0
-    ])
-    if not tree_df.empty:
-        fig_tree = px.treemap(
-            tree_df, path=["label"], values="count",
-            color="count", color_continuous_scale="Viridis",
-            hover_data=["keywords"],
-        )
-        fig_tree.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            margin=dict(t=10, b=10, l=10, r=10),
-            height=380,
-        )
-        st.plotly_chart(fig_tree, use_container_width=True)
 
     # Keyword cards (top 8)
     top8 = sorted_topics[:8]
@@ -488,4 +610,3 @@ else:
     st.info("No topics available yet. Run the ETL pipeline to generate topics.")
 
 render_footer()
-

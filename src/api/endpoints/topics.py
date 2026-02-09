@@ -46,7 +46,7 @@ async def get_topic_details(topic_id: int):
 
 @router.get("/{topic_id}/examples")
 async def get_topic_examples(topic_id: int, limit: int = 10):
-    """Get example documents for a topic."""
+    """Get example documents for a topic with text content."""
     try:
         logger.debug(f"Fetching examples for topic_id={topic_id}, limit={limit}")
         assignments = storage.load_doc_assignments(topic_id=topic_id)
@@ -55,9 +55,37 @@ async def get_topic_examples(topic_id: int, limit: int = 10):
             logger.info(f"No examples found for topic {topic_id}")
             return []
         
-        # Return top examples sorted by confidence
+        # Get top examples sorted by confidence
         examples = assignments.nlargest(limit, 'confidence')
-        logger.info(f"Retrieved {len(examples)} examples for topic {topic_id}")
+        
+        # Load document text from processed parquet files
+        import pandas as pd
+        from pathlib import Path
+        
+        processed_dir = Path("data/processed")
+        unique_batches = examples['batch_id'].unique()
+        
+        # Load all relevant batch files and concat
+        batch_dfs = []
+        for batch_id in unique_batches:
+            batch_file = processed_dir / f"{batch_id}.parquet"
+            if batch_file.exists():
+                try:
+                    df = pd.read_parquet(batch_file)
+                    batch_dfs.append(df[['doc_id', 'text', 'text_cleaned']])
+                except Exception as e:
+                    logger.warning(f"Could not load batch file {batch_file}: {e}")
+        
+        if batch_dfs:
+            all_docs = pd.concat(batch_dfs, ignore_index=True)
+            # Merge text content with examples
+            examples = examples.merge(all_docs, on='doc_id', how='left')
+        else:
+            logger.warning("No batch files found to load document text")
+            examples['text'] = None
+            examples['text_cleaned'] = None
+        
+        logger.info(f"Retrieved {len(examples)} examples with text for topic {topic_id}")
         return examples.to_dict('records')
     
     except Exception as e:

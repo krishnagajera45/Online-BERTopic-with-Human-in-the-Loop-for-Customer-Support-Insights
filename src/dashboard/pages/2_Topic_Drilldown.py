@@ -1,98 +1,138 @@
-"""Topic Drill-down Page - Deep dive into specific topics."""
+"""Topic Drill-down — Deep dive into a single topic with examples and metrics."""
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.dashboard.utils.api_client import APIClient
+from src.dashboard.components.theme import (
+    inject_custom_css, page_header, metric_card, status_badge, render_footer,
+)
 
 st.set_page_config(page_title="Topic Drill-down", page_icon="🔍", layout="wide")
+inject_custom_css()
 
-# Initialize API client
-if 'api_client' not in st.session_state:
+if "api_client" not in st.session_state:
     st.session_state.api_client = APIClient()
-
 api = st.session_state.api_client
 
-st.title("🔍 Topic Drill-down")
-st.markdown("Deep dive into specific topics with examples and metrics")
+page_header(
+    "Topic Drill-down",
+    "Select any topic to inspect its keywords, example documents, and per-topic metrics.",
+    "🔍",
+)
+
+try:
+    topics = api.get_topics()
+    if not topics:
+        st.warning("No topics found — train a model first.")
+        st.stop()
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.stop()
+
+# ── Selector ──────────────────────────────────────────────────────────────────
+topic_map = {f"Topic {t['topic_id']}: {t['custom_label']}  ({t['count']} docs)": t["topic_id"] for t in topics}
+selected_label = st.selectbox("Select a topic to explore:", list(topic_map.keys()))
+selected_id = topic_map[selected_label]
+
+try:
+    topic = api.get_topic_details(selected_id)
+except Exception as e:
+    st.error(f"Could not load topic details: {e}")
+    st.stop()
 
 st.divider()
 
-try:
-    # Get topics
-    topics = api.get_topics()
-    
-    if not topics:
-        st.warning("No topics found. Train a model first.")
-        st.stop()
-    
-    # Topic selector
-    topic_options = {f"Topic {t['topic_id']}: {t['custom_label']}": t['topic_id'] for t in topics}
-    selected_topic_label = st.selectbox("Select a topic to explore:", list(topic_options.keys()))
-    selected_topic_id = topic_options[selected_topic_label]
-    
-    # Get topic details
-    topic = api.get_topic_details(selected_topic_id)
-    
-    st.divider()
-    
-    # Topic overview
-    st.subheader(f"Topic {topic['topic_id']}: {topic['custom_label']}")
-    if topic.get('gpt_summary'):
-        st.caption(f"GPT Summary: {topic['gpt_summary']}")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Document Count", topic['count'])
-    
-    with col2:
-        st.metric("Batch ID", topic['batch_id'])
-    
-    with col3:
-        window = f"{topic['window_start']} to {topic['window_end']}"
-        st.metric("Time Window", window)
-    
-    # Top keywords
-    st.subheader("Top Keywords")
-    keywords_str = ', '.join(topic['top_words'][:20])
-    st.info(keywords_str)
-    
-    st.divider()
-    
-    # Example documents
-    st.subheader("Example Documents")
-    
-    num_examples = st.slider("Number of examples to show:", 5, 50, 10)
-    
+# ── Overview Cards ────────────────────────────────────────────────────────────
+c1, c2, c3 = st.columns(3)
+with c1:
+    metric_card("🆔", topic["topic_id"], "Topic ID")
+with c2:
+    metric_card("📄", f"{topic['count']:,}", "Documents")
+with c3:
+    window = f"{topic.get('window_start', '?')}  →  {topic.get('window_end', '?')}"
+    metric_card("📅", window, "Time Window")
+
+st.divider()
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_info, tab_examples = st.tabs(["ℹ️ Info & Keywords", "📝 Examples"])
+
+# ── INFO ──────────────────────────────────────────────────────────────────────
+with tab_info:
+    i1, i2 = st.columns([1, 1])
+    with i1:
+        st.markdown("#### Label")
+        st.info(f"**{topic.get('custom_label', 'N/A')}**")
+        if topic.get("gpt_summary"):
+            st.markdown("#### GPT Summary")
+            st.success(topic["gpt_summary"])
+
+    with i2:
+        st.markdown("#### Top Keywords")
+        keywords = topic.get("top_words", [])[:20]
+        if keywords:
+            # Show as styled keyword tags
+            tags_html = " ".join(
+                f'<span class="badge badge-info" style="margin:2px;font-size:0.85rem;">{w}</span>'
+                for w in keywords
+            )
+            st.markdown(tags_html, unsafe_allow_html=True)
+
+        # Keyword bar chart
+        if keywords:
+            st.markdown("")
+            kw_df = pd.DataFrame({"keyword": keywords, "rank": list(range(1, len(keywords) + 1))})
+            kw_df["weight"] = [1 / r for r in kw_df["rank"]]
+            fig_kw = px.bar(
+                kw_df, y="keyword", x="weight", orientation="h",
+                color="weight", color_continuous_scale="Tealgrn",
+            )
+            fig_kw.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=10, b=10, l=10, r=10),
+                yaxis=dict(autorange="reversed"),
+                showlegend=False, coloraxis_showscale=False,
+                height=max(250, len(keywords) * 22),
+            )
+            st.plotly_chart(fig_kw, use_container_width=True)
+
+# ── EXAMPLES ──────────────────────────────────────────────────────────────────
+with tab_examples:
+    num_examples = st.slider("Examples to show:", 5, 50, 10)
     try:
-        examples = api.get_topic_examples(selected_topic_id, limit=num_examples)
-        
+        examples = api.get_topic_examples(selected_id, limit=num_examples)
         if examples:
-            for i, example in enumerate(examples, 1):
-                with st.expander(f"Example {i} - Doc ID: {example.get('doc_id', 'N/A')} (Confidence: {example.get('confidence', 0):.2%})"):
-                    st.write(f"**Timestamp:** {example.get('timestamp', 'N/A')}")
-                    st.write(f"**Batch:** {example.get('batch_id', 'N/A')}")
-                    # Note: We don't have the actual text in assignments, 
-                    # would need to join with original data
-                    st.info("Full text would be displayed here in production")
+            for i, ex in enumerate(examples, 1):
+                conf = ex.get("confidence", 0)
+                if conf > 0.7:
+                    badge = status_badge(f"{conf:.0%}", "success")
+                elif conf > 0.4:
+                    badge = status_badge(f"{conf:.0%}", "medium")
+                else:
+                    badge = status_badge(f"{conf:.0%}", "high")
+
+                # Get document text (prefer original text, fallback to cleaned)
+                doc_text = ex.get('text') or ex.get('text_cleaned') or "[Text not available]"
+                
+                with st.expander(
+                    f"Example {i}  —  Doc {ex.get('doc_id', '?')}  |  Confidence: {conf:.1%}",
+                    expanded=(i <= 3)  # Auto-expand first 3 examples
+                ):
+                    st.markdown(f"**Batch:** {ex.get('batch_id', '—')}  ·  **Timestamp:** {ex.get('timestamp', '—')}  ·  Confidence: {badge}", unsafe_allow_html=True)
+                    st.divider()
+                    st.markdown("##### 📄 Document Content")
+                    st.markdown(f"> {doc_text}")
         else:
-            st.info("No examples found for this topic.")
-    
+            st.info("No example documents found for this topic.")
     except Exception as e:
         st.warning(f"Could not load examples: {e}")
-    
-    st.divider()
-    
-    # Drift metrics (if available)
-    st.subheader("Drift Metrics")
-    
-    st.info("Drift metrics for individual topics will be displayed here when available")
-    st.caption("This would show centroid shift, keyword divergence, etc.")
 
-except Exception as e:
-    st.error(f"Error: {e}")
+render_footer()
 

@@ -1,170 +1,172 @@
-"""Inference Page - Predict topic for new text."""
+"""Topic Inference — predict topics for new customer support messages."""
 import streamlit as st
+import plotly.graph_objects as go
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.dashboard.utils.api_client import APIClient
+from src.dashboard.components.theme import (
+    inject_custom_css, page_header, metric_card, status_badge, render_footer,
+)
 
 st.set_page_config(page_title="Inference", page_icon="🔮", layout="wide")
+inject_custom_css()
 
-# Initialize API client
-if 'api_client' not in st.session_state:
+if "api_client" not in st.session_state:
     st.session_state.api_client = APIClient()
-
 api = st.session_state.api_client
 
-st.title("🔮 Topic Inference")
-st.markdown("Predict topics for new customer support messages")
+page_header(
+    "Topic Inference",
+    "Type or paste a customer support message and let the model predict its topic in real time.",
+    "🔮",
+)
 
-st.divider()
-
-# Example texts
-st.subheader("Try an Example")
-
+# ── Example library ──────────────────────────────────────────────────────────
 examples = {
-    "Billing Issue": "I was charged twice for my subscription this month. Can you help me get a refund?",
-    "Technical Support": "The app keeps crashing when I try to upload photos. I've tried restarting but it doesn't help.",
-    "Account Access": "I forgot my password and the reset email isn't arriving. How can I access my account?",
-    "Shipping Inquiry": "Where is my package? The tracking number says it's been in transit for a week.",
-    "Product Question": "Does this model come in blue? I can only find it in black on the website."
+    "💰 Billing Issue": "I was charged twice for my subscription this month. Can you help me get a refund?",
+    "📱 App Crash": "The app keeps crashing when I try to upload photos. I've tried restarting but it doesn't help.",
+    "🔑 Account Access": "I forgot my password and the reset email isn't arriving. How can I access my account?",
+    "📦 Shipping": "Where is my package? The tracking number says it's been in transit for a week.",
+    "❓ Product Q": "Does this model come in blue? I can only find it in black on the website.",
+    "📶 Connectivity": "My internet has been down for two hours. The router lights are all off.",
 }
 
-example_choice = st.selectbox(
-    "Select an example or write your own below:",
-    options=["Custom"] + list(examples.keys())
-)
+# Layout
+input_col, result_col = st.columns([1, 1], gap="large")
 
-if example_choice == "Custom":
-    default_text = ""
-else:
-    default_text = examples[example_choice]
+with input_col:
+    st.markdown("### 💬 Input")
 
-st.divider()
+    example_choice = st.selectbox(
+        "Pick an example or type your own:",
+        options=["✍️ Custom"] + list(examples.keys()),
+    )
+    default_text = "" if example_choice == "✍️ Custom" else examples[example_choice]
 
-# Text input
-st.subheader("Input Text")
+    input_text = st.text_area(
+        "Customer support message:",
+        value=default_text,
+        height=180,
+        placeholder="Type or paste a message here…",
+    )
 
-input_text = st.text_area(
-    "Enter customer support message:",
-    value=default_text,
-    height=150,
-    placeholder="Type or paste a customer support message here..."
-)
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        predict = st.button("🔮 Predict Topic", type="primary", use_container_width=True)
+    with bc2:
+        if st.button("🗑️ Clear", use_container_width=True):
+            st.rerun()
 
-# Predict button
-col1, col2, col3 = st.columns([1, 1, 2])
+with result_col:
+    st.markdown("### 📊 Result")
 
-with col1:
-    predict_button = st.button("🔮 Predict Topic", type="primary", width='stretch')
+    if predict:
+        if not input_text.strip():
+            st.warning("⚠️ Please enter some text first!")
+        else:
+            with st.spinner("Analysing…"):
+                try:
+                    result = api.infer_topic(input_text)
 
-with col2:
-    clear_button = st.button("🗑️ Clear", width='stretch')
-
-if clear_button:
-    st.rerun()
-
-if predict_button:
-    if not input_text.strip():
-        st.warning("⚠️ Please enter some text first!")
-    else:
-        with st.spinner("Analyzing text..."):
-            try:
-                result = api.infer_topic(input_text)
-                
-                st.success("✅ Prediction Complete!")
-                
-                st.divider()
-                
-                # Display results
-                st.subheader("Prediction Results")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric(
-                        label="Topic ID",
-                        value=result['topic_id']
-                    )
-                
-                with col2:
-                    st.metric(
-                        label="Confidence",
-                        value=f"{result['confidence']:.1%}"
-                    )
-                
-                with col3:
-                    confidence = result['confidence']
-                    if confidence > 0.7:
-                        confidence_label = "High"
-                        confidence_color = "🟢"
-                    elif confidence > 0.4:
-                        confidence_label = "Medium"
-                        confidence_color = "🟠"
+                    # Confidence gauge
+                    conf = result["confidence"]
+                    if conf > 0.7:
+                        conf_color, conf_label, conf_level = "#00B894", "High", "success"
+                    elif conf > 0.4:
+                        conf_color, conf_label, conf_level = "#FDCB6E", "Medium", "medium"
                     else:
-                        confidence_label = "Low"
-                        confidence_color = "🔴"
-                    
-                    st.metric(
-                        label="Confidence Level",
-                        value=f"{confidence_color} {confidence_label}"
-                    )
-                
-                # Topic label
-                st.subheader("Predicted Topic")
-                st.info(f"**{result['topic_label']}**")
-                
-                # Top keywords
-                st.subheader("Topic Keywords")
-                keywords = ', '.join(result['top_words'])
-                st.write(keywords)
-                
-                # Interpretation
-                st.divider()
-                st.subheader("💡 Interpretation")
-                
-                if result['confidence'] > 0.7:
-                    st.success(
-                        "The model is highly confident about this prediction. "
-                        "The input text strongly aligns with this topic's characteristics."
-                    )
-                elif result['confidence'] > 0.4:
-                    st.warning(
-                        "The model has moderate confidence. "
-                        "The text may contain elements of multiple topics or be atypical."
-                    )
-                else:
-                    st.error(
-                        "Low confidence prediction. "
-                        "The text may be ambiguous, contain novel content, or not fit well into existing topics."
-                    )
-                
-            except Exception as e:
-                st.error(f"❌ Error during prediction: {e}")
-                st.info("Make sure the FastAPI backend is running and a model has been trained.")
+                        conf_color, conf_label, conf_level = "#E17055", "Low", "high"
 
-st.divider()
+                    # KPI cards
+                    r1, r2, r3 = st.columns(3)
+                    with r1:
+                        metric_card("🆔", result["topic_id"], "Topic ID")
+                    with r2:
+                        metric_card("📊", f"{conf:.0%}", "Confidence")
+                    with r3:
+                        st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-icon">🎯</div>
+                            <div class="metric-value" style="-webkit-text-fill-color:{conf_color};">{conf_label}</div>
+                            <div class="metric-label">Confidence Level</div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-# Information
-with st.expander("ℹ️ How does this work?"):
-    st.markdown("""
-    **Topic Inference Process:**
-    
-    1. **Text Preprocessing**: Your input is cleaned (URLs removed, lowercase, etc.)
-    2. **Embedding**: The text is converted to a dense vector using sentence transformers
-    3. **Topic Assignment**: The embedding is compared to existing topic representations
-    4. **Confidence Score**: Based on the similarity to the assigned topic
-    
-    **Interpreting Confidence:**
-    - **High (>70%)**: Strong match to topic characteristics
-    - **Medium (40-70%)**: Reasonable match but some ambiguity
-    - **Low (<40%)**: Weak match, may be novel or ambiguous content
-    
-    **Use Cases:**
-    - Auto-categorize incoming support tickets
-    - Route messages to appropriate teams
-    - Identify trending topics in real-time
-    - Monitor topic distribution changes
-    """)
+                    # Topic label
+                    st.markdown(f"#### Predicted Topic")
+                    st.info(f"**{result['topic_label']}**")
+
+                    # Keywords as tags
+                    st.markdown("#### Topic Keywords")
+                    tags = " ".join(
+                        f'<span class="badge badge-info" style="margin:2px;font-size:0.85rem;">{w}</span>'
+                        for w in result.get("top_words", [])
+                    )
+                    st.markdown(tags, unsafe_allow_html=True)
+
+                    # Confidence gauge chart
+                    fig = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=conf * 100,
+                        title={"text": "Confidence", "font": {"size": 16, "color": "#DFE6E9"}},
+                        number={"suffix": "%", "font": {"color": conf_color}},
+                        gauge={
+                            "axis": {"range": [0, 100], "tickcolor": "#636E72"},
+                            "bar": {"color": conf_color},
+                            "bgcolor": "#1A1D23",
+                            "borderwidth": 2,
+                            "bordercolor": "#2D3142",
+                            "steps": [
+                                {"range": [0, 40], "color": "rgba(225,112,85,0.15)"},
+                                {"range": [40, 70], "color": "rgba(253,203,110,0.15)"},
+                                {"range": [70, 100], "color": "rgba(0,184,148,0.15)"},
+                            ],
+                        },
+                    ))
+                    fig.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=220,
+                        margin=dict(t=40, b=10),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Interpretation
+                    st.markdown("#### 💡 Interpretation")
+                    if conf > 0.7:
+                        st.success("The model is **highly confident**. The text strongly aligns with this topic's characteristics.")
+                    elif conf > 0.4:
+                        st.warning("**Moderate confidence** — the text may contain elements of multiple topics.")
+                    else:
+                        st.error("**Low confidence** — the text may be ambiguous, novel, or not fit existing topics well.")
+
+                except Exception as e:
+                    st.error(f"❌ Prediction failed: {e}")
+                    st.info("Ensure the FastAPI backend is running and a model is trained.")
+    else:
+        st.markdown("""
+        <div class="info-card">
+            <h3>How it works</h3>
+            <p>
+            <strong>1.</strong> Text is cleaned (URLs, mentions, emojis removed).<br/>
+            <strong>2.</strong> Sentence-BERT encodes the text into a 384-dim vector.<br/>
+            <strong>3.</strong> The vector is compared to existing topic representations.<br/>
+            <strong>4.</strong> A confidence score measures alignment with the predicted topic.
+            </p>
+        </div>
+        <div class="info-card">
+            <h3>Use Cases</h3>
+            <p>
+            • Auto-categorize incoming support tickets<br/>
+            • Route messages to the right team<br/>
+            • Identify trending topics in real time<br/>
+            • Monitor topic distribution changes
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+render_footer()
 

@@ -13,6 +13,16 @@ class APIClient:
         """Initialize API client."""
         self.base_url = base_url or config.dashboard.api_base_url
     
+    # ── Connectivity ──────────────────────────────────────────────
+    def health_check(self) -> bool:
+        """Return True if the API is reachable."""
+        try:
+            r = requests.get(f"{self.base_url}/health", timeout=3)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    # ── Topics ────────────────────────────────────────────────────
     def get_topics(self) -> List[Dict[str, Any]]:
         """Get current topics."""
         response = requests.get(f"{self.base_url}/api/v1/topics/current")
@@ -31,22 +41,24 @@ class APIClient:
         response.raise_for_status()
         return response.json()
     
+    # ── Trends ────────────────────────────────────────────────────
     def get_trends(self, topic_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get topic trends."""
         params = {}
         if topic_id is not None:
             params['topic_id'] = topic_id
-        
         response = requests.get(f"{self.base_url}/api/v1/trends", params=params)
         response.raise_for_status()
         return response.json()
     
+    # ── Alerts ────────────────────────────────────────────────────
     def get_alerts(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get drift alerts."""
         response = requests.get(f"{self.base_url}/api/v1/alerts?limit={limit}")
         response.raise_for_status()
         return response.json()
     
+    # ── Inference ─────────────────────────────────────────────────
     def infer_topic(self, text: str) -> Dict[str, Any]:
         """Predict topic for text."""
         response = requests.post(
@@ -56,6 +68,7 @@ class APIClient:
         response.raise_for_status()
         return response.json()
     
+    # ── HITL ──────────────────────────────────────────────────────
     def merge_topics(self, topic_ids: List[int], new_label: str = None, note: str = None) -> Dict[str, Any]:
         """Merge topics."""
         response = requests.post(
@@ -80,9 +93,29 @@ class APIClient:
         response.raise_for_status()
         return response.json()
     
+    def get_version_history(self) -> Dict[str, Any]:
+        """Get model version history."""
+        response = requests.get(f"{self.base_url}/api/v1/hitl/version-history")
+        response.raise_for_status()
+        return response.json()
+    
+    def rollback_model(self, version_timestamp: str) -> Dict[str, Any]:
+        """Rollback model to a previous version."""
+        response = requests.post(f"{self.base_url}/api/v1/hitl/rollback/{version_timestamp}")
+        response.raise_for_status()
+        return response.json()
+
+    # ── Pipeline ──────────────────────────────────────────────────
     def get_pipeline_status(self) -> Dict[str, Any]:
         """Get pipeline status."""
         response = requests.get(f"{self.base_url}/api/v1/pipeline/status")
+        response.raise_for_status()
+        return response.json()
+
+    # ── Batch Stats ───────────────────────────────────────────────
+    def get_batch_stats(self) -> Dict[str, Any]:
+        """Get per-batch + cumulative aggregate statistics."""
+        response = requests.get(f"{self.base_url}/api/v1/batch-stats")
         response.raise_for_status()
         return response.json()
 
