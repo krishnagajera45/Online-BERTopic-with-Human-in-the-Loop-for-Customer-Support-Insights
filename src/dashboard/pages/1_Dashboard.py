@@ -82,14 +82,12 @@ with overall_col:
 
     o1, o2 = st.columns(2)
     with o1:
-        metric_card("📌", cumulative.get("total_topics", len(topics)), "Total Topics Discovered")
-    with o2:
         metric_card("📄", f"{cumulative.get('total_docs', 0):,}", "Total Docs Processed")
+    with o2:
+        metric_card("📦", cumulative.get("total_batches", len(batches_info)), "Batches Processed")
 
     o3, o4 = st.columns(2)
     with o3:
-        metric_card("📦", cumulative.get("total_batches", len(batches_info)), "Batches Processed")
-    with o4:
         last_run = cumulative.get("last_run") or "—"
         if last_run != "—":
             # Show just date+time nicely
@@ -100,39 +98,70 @@ with overall_col:
             except Exception:
                 pass
         metric_card("🕑", last_run, "Last Pipeline Run")
+    with o4:
+        # Window info if available
+        if batches_info:
+            latest_batch = batches_info[-1]
+            window_range = f"{latest_batch.get('window_start', 'N/A')[:10]} to {latest_batch.get('window_end', 'N/A')[:10]}"
+            metric_card("📅", window_range, "Latest Window")
 
     # ── Mini sparkline — docs processed per batch (cumulative line) ───────
     if batches_info:
+        from datetime import datetime
+        
         spark_df = pd.DataFrame(batches_info)
         spark_df["cum_docs"] = spark_df["docs"].cumsum()
-        fig_spark = go.Figure()
-        fig_spark.add_trace(go.Scatter(
-            x=list(range(1, len(spark_df) + 1)),
-            y=spark_df["cum_docs"],
-            mode="lines+markers+text",
-            text=spark_df["cum_docs"].astype(str),
-            textposition="top center",
-            line=dict(color="#6C5CE7", width=3),
-            marker=dict(size=8, color="#00CEC9"),
-            fill="tozeroy",
-            fillcolor="rgba(108,92,231,0.10)",
-        ))
-        fig_spark.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=190,
-            margin=dict(l=30, r=10, t=25, b=30),
-            xaxis=dict(
-                title="Batch #",
-                dtick=1,
-                showgrid=False,
-            ),
-            yaxis=dict(title="Cumulative Docs", showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
-            showlegend=False,
-            title=dict(text="Documents Processed Over Time", font=dict(size=13, color="#B2BEC3")),
-        )
-        st.plotly_chart(fig_spark, use_container_width=True)
+        
+        # Extract timestamps from batch data
+        def parse_timestamp(batch):
+            """Extract timestamp from batch metadata."""
+            ts = batch.get("timestamp") or batch.get("window_start") or batch.get("window_end")
+            if ts:
+                try:
+                    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except:
+                    pass
+            return None
+        
+        spark_df["timestamp"] = spark_df.apply(parse_timestamp, axis=1)
+        
+        # Filter out rows without valid timestamps
+        spark_df_valid = spark_df.dropna(subset=["timestamp"])
+        
+        if not spark_df_valid.empty:
+            fig_spark = go.Figure()
+            fig_spark.add_trace(go.Scatter(
+                x=spark_df_valid["timestamp"],
+                y=spark_df_valid["cum_docs"],
+                mode="lines+markers+text",
+                text=spark_df_valid["cum_docs"].astype(str),
+                textposition="top center",
+                line=dict(color="#6C5CE7", width=3),
+                marker=dict(size=8, color="#00CEC9"),
+                fill="tozeroy",
+                fillcolor="rgba(108,92,231,0.10)",
+                hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>Documents: %{y:,}<extra></extra>"
+            ))
+            fig_spark.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=190,
+                margin=dict(l=30, r=10, t=25, b=50),
+                xaxis=dict(
+                    title="Processing Time",
+                    showgrid=True,
+                    gridcolor="rgba(99,110,114,0.15)",
+                    tickformat="%m/%d\n%H:%M",
+                ),
+                yaxis=dict(title="Cumulative Docs", showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
+                showlegend=False,
+                title=dict(text="Documents Processed Over Time", font=dict(size=13, color="#B2BEC3")),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_spark, width='stretch')
+        else:
+            st.warning("⚠️ No timestamp data available for cumulative documents chart.")
     
     # ── Topic evolution sparkline — topics per batch ───────
     if batches_info and trends_raw:
@@ -146,34 +175,54 @@ with overall_col:
         batch_df = batch_df.merge(topic_counts, on="batch_id", how="left", suffixes=("", "_from_trends"))
         batch_df["topics_from_trends"] = batch_df["topics_from_trends"].fillna(0).astype(int)
         
-        fig_topic_evo = go.Figure()
-        fig_topic_evo.add_trace(go.Scatter(
-            x=list(range(1, len(batch_df) + 1)),
-            y=batch_df["topics_from_trends"],
-            mode="lines+markers+text",
-            text=batch_df["topics_from_trends"].astype(str),
-            textposition="top center",
-            line=dict(color="#00CEC9", width=3),
-            marker=dict(size=8, color="#6C5CE7"),
-            fill="tozeroy",
-            fillcolor="rgba(0,206,201,0.10)",
-        ))
-        fig_topic_evo.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=190,
-            margin=dict(l=30, r=10, t=25, b=30),
-            xaxis=dict(
-                title="Batch #",
-                dtick=1,
-                showgrid=False,
-            ),
-            yaxis=dict(title="Topics Discovered", showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
-            showlegend=False,
-            title=dict(text="Topic Evolution Over Batches", font=dict(size=13, color="#B2BEC3")),
-        )
-        st.plotly_chart(fig_topic_evo, use_container_width=True)
+        # Extract timestamps
+        def parse_timestamp(batch):
+            """Extract timestamp from batch metadata."""
+            ts = batch.get("timestamp") or batch.get("window_start") or batch.get("window_end")
+            if ts:
+                try:
+                    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except:
+                    pass
+            return None
+        
+        batch_df["timestamp"] = batch_df.apply(parse_timestamp, axis=1)
+        batch_df_valid = batch_df.dropna(subset=["timestamp"])
+        
+        if not batch_df_valid.empty:
+            fig_topic_evo = go.Figure()
+            fig_topic_evo.add_trace(go.Scatter(
+                x=batch_df_valid["timestamp"],
+                y=batch_df_valid["topics_from_trends"],
+                mode="lines+markers+text",
+                text=batch_df_valid["topics_from_trends"].astype(str),
+                textposition="top center",
+                line=dict(color="#00CEC9", width=3),
+                marker=dict(size=8, color="#6C5CE7"),
+                fill="tozeroy",
+                fillcolor="rgba(0,206,201,0.10)",
+                hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>Topics: %{y}<extra></extra>"
+            ))
+            fig_topic_evo.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=190,
+                margin=dict(l=30, r=10, t=25, b=50),
+                xaxis=dict(
+                    title="Processing Time",
+                    showgrid=True,
+                    gridcolor="rgba(99,110,114,0.15)",
+                    tickformat="%m/%d\n%H:%M",
+                ),
+                yaxis=dict(title="Topics Discovered", showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
+                showlegend=False,
+                title=dict(text="Topic Evolution Over Time", font=dict(size=13, color="#B2BEC3")),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_topic_evo, width='stretch')
+        else:
+            st.warning("⚠️ No timestamp data available for topic evolution chart.")
 
 # ── DIVIDER ───────────────────────────────────────────────────────────────────
 with divider_col:
@@ -234,27 +283,54 @@ with batch_col:
         # Per-batch doc bar chart
         if len(batches_info) > 1:
             bdf = pd.DataFrame(batches_info)
-            short_labels = [f"B{i+1}" for i in range(len(bdf))]
-            fig_bbar = go.Figure()
-            fig_bbar.add_trace(go.Bar(
-                x=short_labels,
-                y=bdf["docs"],
-                marker_color=["#2D3142"] * (len(bdf) - 1) + ["#6C5CE7"],
-                text=bdf["docs"],
-                textposition="outside",
-            ))
-            fig_bbar.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                height=190,
-                margin=dict(l=30, r=10, t=25, b=30),
-                yaxis=dict(showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
-                xaxis=dict(title="Batch"),
-                showlegend=False,
-                title=dict(text="Docs per Batch (latest highlighted)", font=dict(size=13, color="#B2BEC3")),
-            )
-            st.plotly_chart(fig_bbar, use_container_width=True)
+            
+            # Extract timestamps
+            def parse_timestamp(batch):
+                """Extract timestamp from batch metadata."""
+                ts = batch.get("timestamp") or batch.get("window_start") or batch.get("window_end")
+                if ts:
+                    try:
+                        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except:
+                        pass
+                return None
+            
+            bdf["timestamp"] = bdf.apply(parse_timestamp, axis=1)
+            bdf_valid = bdf.dropna(subset=["timestamp"])
+            
+            if not bdf_valid.empty:
+                # Create color array (highlight latest)
+                colors = ["#2D3142"] * (len(bdf_valid) - 1) + ["#6C5CE7"]
+                
+                fig_bbar = go.Figure()
+                fig_bbar.add_trace(go.Bar(
+                    x=bdf_valid["timestamp"],
+                    y=bdf_valid["docs"],
+                    marker_color=colors,
+                    text=bdf_valid["docs"],
+                    textposition="outside",
+                    hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>Documents: %{y:,}<extra></extra>"
+                ))
+                fig_bbar.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    height=190,
+                    margin=dict(l=30, r=10, t=25, b=50),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
+                    xaxis=dict(
+                        title="Processing Time",
+                        tickformat="%m/%d\n%H:%M",
+                        showgrid=True,
+                        gridcolor="rgba(99,110,114,0.15)",
+                    ),
+                    showlegend=False,
+                    title=dict(text="Docs per Batch (latest highlighted)", font=dict(size=13, color="#B2BEC3")),
+                    hovermode="x"
+                )
+                st.plotly_chart(fig_bbar, width='stretch')
+            else:
+                st.warning("⚠️ No timestamp data available for docs per batch chart.")
     else:
         st.info("No batches processed yet. Run the pipeline to start.")
 
@@ -310,21 +386,21 @@ if trends_raw:
         with btn_col:
             b1, b2, b3, b4 = st.columns(4)
             with b1:
-                if st.button("⏮", use_container_width=True, key="first_btn", help="First batch"):
+                if st.button("⏮", width='stretch', key="first_btn", help="First batch"):
                     st.session_state.batch_idx = 0
                     st.rerun()
             with b2:
-                if st.button("◀", use_container_width=True, key="prev_btn", help="Previous batch"):
+                if st.button("◀", width='stretch', key="prev_btn", help="Previous batch"):
                     if st.session_state.batch_idx > 0:
                         st.session_state.batch_idx -= 1
                         st.rerun()
             with b3:
-                if st.button("▶", use_container_width=True, key="next_btn", help="Next batch"):
+                if st.button("▶", width='stretch', key="next_btn", help="Next batch"):
                     if st.session_state.batch_idx < len(sorted_batches) - 1:
                         st.session_state.batch_idx += 1
                         st.rerun()
             with b4:
-                if st.button("⏭", use_container_width=True, key="latest_btn", help="Latest batch"):
+                if st.button("⏭", width='stretch', key="latest_btn", help="Latest batch"):
                     # Find the latest batch that has topics > 0
                     latest_idx = len(sorted_batches) - 1
                     for i in range(len(sorted_batches) - 1, -1, -1):
@@ -404,7 +480,7 @@ if trends_raw:
                 height=400,
             )
             fig_tree.update_traces(textposition="middle center", textfont_size=12)
-            st.plotly_chart(fig_tree, use_container_width=True)
+            st.plotly_chart(fig_tree, width='stretch')
     else:
         st.info("No topics found for this batch.")
     
@@ -427,7 +503,7 @@ if trends_raw:
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             margin=dict(t=40, b=30, l=30, r=10), coloraxis_showscale=False,
         )
-        st.plotly_chart(fig_dist, use_container_width=True)
+        st.plotly_chart(fig_dist, width='stretch')
 
     with pie_col:
         fig_pie = px.pie(
@@ -441,7 +517,7 @@ if trends_raw:
             margin=dict(t=40, b=10, l=10, r=10), showlegend=False,
         )
         fig_pie.update_traces(textposition="inside", textinfo="label+percent")
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width='stretch')
 
     st.divider()
 
@@ -472,7 +548,7 @@ if trends_raw:
         xaxis=dict(title="Topic ID", dtick=1),
         yaxis=dict(title="Document Count"),
     )
-    st.plotly_chart(fig_bubble, use_container_width=True)
+    st.plotly_chart(fig_bubble, width='stretch')
 
     st.divider()
 
@@ -522,7 +598,7 @@ if trends_raw:
         margin=dict(t=30, b=40), legend=dict(font=dict(size=9)),
         xaxis_tickangle=-30,
     )
-    st.plotly_chart(fig_line, use_container_width=True)
+    st.plotly_chart(fig_line, width='stretch')
 
 else:
     st.info("Run the ETL pipeline to generate batch-level data.")
@@ -599,7 +675,7 @@ if topics:
     # Display with custom styling
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=500,
         column_config={

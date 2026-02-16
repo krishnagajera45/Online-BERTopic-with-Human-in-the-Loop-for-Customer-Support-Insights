@@ -94,7 +94,7 @@ with tab_timeline:
         xaxis_title="Time",
         height=320,
     )
-    st.plotly_chart(fig_tl, use_container_width=True)
+    st.plotly_chart(fig_tl, width='stretch')
 
     # Alerts by reason bar chart
     st.markdown("### Alerts by Reason")
@@ -113,7 +113,7 @@ with tab_timeline:
         yaxis_title="",
         height=max(200, len(reason_counts) * 35),
     )
-    st.plotly_chart(fig_r, use_container_width=True)
+    st.plotly_chart(fig_r, width='stretch')
 
 # ── DETAIL ────────────────────────────────────────────────────────────────────
 with tab_detail:
@@ -207,7 +207,7 @@ with tab_metrics:
                 margin=dict(t=30, b=30),
                 coloraxis_showscale=False,
             )
-            st.plotly_chart(fig_cs, use_container_width=True)
+            st.plotly_chart(fig_cs, width='stretch')
         else:
             st.info("No centroid shift data available.")
 
@@ -229,7 +229,7 @@ with tab_metrics:
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(t=30, b=30),
             )
-            st.plotly_chart(fig_pc, use_container_width=True)
+            st.plotly_chart(fig_pc, width='stretch')
         else:
             st.info("No prevalence change data available.")
 
@@ -249,7 +249,7 @@ with tab_metrics:
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(t=30, b=10),
             )
-            st.plotly_chart(fig_hm, use_container_width=True)
+            st.plotly_chart(fig_hm, width='stretch')
 
 # ── DRIFT SCORE CARD ─────────────────────────────────────────────────────────
 with tab_score:
@@ -313,7 +313,7 @@ with tab_score:
         height=300,
         margin=dict(t=40, b=10),
     )
-    st.plotly_chart(fig_gauge, use_container_width=True)
+    st.plotly_chart(fig_gauge, width='stretch')
 
     # Summary table
     st.markdown("### Severity Breakdown")
@@ -321,7 +321,7 @@ with tab_score:
     sev_summary.columns = ["Severity", "Count"]
     sev_summary["Weight"] = sev_summary["Severity"].map(weights)
     sev_summary["Score"] = sev_summary["Count"] * sev_summary["Weight"]
-    st.dataframe(sev_summary, use_container_width=True, hide_index=True)
+    st.dataframe(sev_summary, width='stretch', hide_index=True)
 
 render_footer()
 

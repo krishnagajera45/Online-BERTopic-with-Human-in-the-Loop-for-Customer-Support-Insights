@@ -18,7 +18,6 @@ async def get_batch_stats() -> Dict[str, Any]:
         {
           "cumulative": {
             "total_docs": 539,
-            "total_topics": 67,
             "total_batches": 3,
             "last_run": "2026-02-07T19:38:37",
           },
@@ -42,7 +41,6 @@ async def get_batch_stats() -> Dict[str, Any]:
             return {
                 "cumulative": {
                     "total_docs": 0,
-                    "total_topics": 0,
                     "total_batches": 0,
                     "last_run": None,
                 },
@@ -114,13 +112,10 @@ async def get_batch_stats() -> Dict[str, Any]:
         # Sort batches chronologically
         batch_agg = batch_agg.sort_values("timestamp").reset_index(drop=True)
 
-        # Cumulative stats (use topics metadata for accurate total_topics count, excluding outlier -1)
+        # Cumulative stats (total_topics removed per user request - causes statistics mismatch)
         state = storage.load_processing_state()
-        # Count only non-outlier topics
-        total_topics_count = sum(1 for t in topics_list if t.get("topic_id") != -1)
         cumulative = {
             "total_docs": int(assignments.shape[0]),
-            "total_topics": total_topics_count,  # Total topics discovered (excluding outlier -1)
             "total_batches": int(batch_agg.shape[0]),
             "last_run": state.get("last_run_timestamp"),
         }

@@ -16,7 +16,7 @@ from src.etl.tasks.lda_tasks import (
 from src.utils import load_config
 
 
-@flow(name="lda-comparison-flow", log_prints=True)
+@flow(name="lda-modeling-flow", log_prints=True)
 def lda_comparison_flow(
     documents: List[str],
     num_topics: int,

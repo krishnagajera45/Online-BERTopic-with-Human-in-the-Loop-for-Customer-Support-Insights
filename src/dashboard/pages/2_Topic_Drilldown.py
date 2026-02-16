@@ -101,7 +101,7 @@ with tab_info:
                 showlegend=False, coloraxis_showscale=False,
                 height=max(250, len(keywords) * 22),
             )
-            st.plotly_chart(fig_kw, use_container_width=True)
+            st.plotly_chart(fig_kw, width='stretch')
 
 # ── EXAMPLES ──────────────────────────────────────────────────────────────────
 with tab_examples:

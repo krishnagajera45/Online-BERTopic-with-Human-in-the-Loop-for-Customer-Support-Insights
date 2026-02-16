@@ -3,13 +3,14 @@ from prefect import flow, get_run_logger
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
+import json
 import time
 import mlflow
 import pandas as pd
 from src.etl.flows.data_ingestion import data_ingestion_flow
-from src.etl.flows.model_training import model_training_flow
-from src.etl.flows.drift_detection import drift_detection_flow
+from src.etl.flows.bertopic_modeling import bertopic_modeling_flow
 from src.etl.flows.lda_comparison import lda_comparison_flow
+from src.etl.flows.drift_detection import drift_detection_flow
 from src.utils import load_config, generate_batch_id, MLflowLogger, get_prefect_context
 from src.utils import StorageManager
 from src.dashboard.utils.api_client import APIClient
@@ -129,11 +130,11 @@ def complete_pipeline_flow(
             df=df
         )
         
-        # ========== STEP 2: MODEL TRAINING ==========
-        logger.info("Step 2: Running model training flow")
+        # ========== STEP 2: BERTOPIC MODELING (Training + Metrics) ==========
+        logger.info("Step 2: Running BERTopic modeling flow (training + evaluation metrics)")
         step2_start = time.time()
         
-        topics, probs = model_training_flow(
+        topics, probs = bertopic_modeling_flow(
             documents=documents,
             doc_ids=doc_ids,
             batch_id=batch_id,
@@ -141,19 +142,14 @@ def complete_pipeline_flow(
             window_end=end_date
         )
         
-        logger.info(f"Model training complete: {len(set(topics))} topics")
-        
-        # Auto-detect model stage
-        model_stage = 'initial' if not Path(config.storage.previous_model_path).exists() else 'online_update'
-
-        # Log step 2 timing and model details
         step2_duration = time.time() - step2_start
-        mlflow_logger.log_processing_time("model_training", step2_duration)
+        logger.info(f"BERTopic modeling complete: {len(set(topics))} topics")
         
-        # Load model to log details
+        # Log model details to MLflow
+        model_stage = 'initial' if not Path(config.storage.previous_model_path).exists() else 'online_update'
         from src.utils import load_bertopic_model
         model = load_bertopic_model(config.storage.current_model_path)
-        
+        mlflow_logger.log_processing_time("bertopic_modeling", step2_duration)
         mlflow_logger.log_model_details(
             model=model,
             topics=topics,
@@ -168,84 +164,48 @@ def complete_pipeline_flow(
             },
             is_initial=(model_stage == 'initial')
         )
-        
-        # Log model artifact
         mlflow_logger.log_model_artifact(config.storage.current_model_path)
         
-        # ========== STEP 2.4: BERTOPIC METRICS CALCULATION ==========
-        step2_4_start = time.time()
-        logger.info("Step 2.4: Calculating BERTopic evaluation metrics")
-        
+        # Log BERTopic metrics to MLflow (from saved file)
         try:
-            from src.etl.tasks.bertopic_metrics import (
-                calculate_bertopic_coherence_task,
-                calculate_bertopic_silhouette_task,
-                save_bertopic_metrics_task
-            )
-            
-            # Calculate coherence
-            coherence_metrics = calculate_bertopic_coherence_task(model, documents, topics)
-            
-            # Calculate silhouette - pass the model so the task can extract embeddings
-            try:
-                silhouette_score = calculate_bertopic_silhouette_task(model, documents, topics)
-            except Exception as e:
-                logger.warning(f"Could not calculate silhouette: {e}")
-                silhouette_score = 0.0
-            
-            # Get diversity from live stats
-            try:
-                api_client = APIClient()
-                live_stats = api_client.get_topics()
-                all_keywords = []
-                for t in live_stats:
-                    all_keywords.extend([w for w in t.get("top_words", [])])
-                unique_kw = len(set(all_keywords))
-                total_kw = len(all_keywords) if all_keywords else 1
-                bertopic_diversity = unique_kw / total_kw if total_kw else 0.0
-            except Exception:
-                bertopic_diversity = 0.0
-            
-            # Combine metrics
-            bertopic_metrics = {
-                'coherence_c_v': coherence_metrics.get('coherence_c_v', 0.0),
-                'silhouette_score': silhouette_score,
-                'num_topics': len(set(topics)) - (1 if -1 in topics else 0),
-                'diversity': bertopic_diversity,
-                'batch_id': batch_id,
-                'timestamp': datetime.now().isoformat(),
-                'training_time_seconds': step2_duration
-            }
-            
-            # Save metrics
-            save_bertopic_metrics_task(bertopic_metrics)
-            
-            # Log to MLflow
-            mlflow_logger.log_metrics({
-                'bertopic_coherence_c_v': bertopic_metrics['coherence_c_v'],
-                'bertopic_silhouette_score': bertopic_metrics['silhouette_score']
-            })
-            
-            logger.info(f"BERTopic metrics: Coherence={bertopic_metrics['coherence_c_v']:.4f}, Silhouette={bertopic_metrics['silhouette_score']:.4f}")
-            
-        except Exception as e:
-            logger.error(f"BERTopic metrics calculation failed: {e}", exc_info=True)
-            logger.warning("Pipeline will continue without BERTopic metrics")
+            import json as _json
+            metrics_path = Path("outputs/metrics/bertopic_metrics.json")
+            if metrics_path.exists():
+                with open(metrics_path, 'r') as f:
+                    bt_data = _json.load(f)
+                latest = bt_data.get("latest", bt_data)
+                if latest.get("coherence_c_v") is not None:
+                    mlflow_logger.log_metrics({
+                        'bertopic_coherence_c_v': latest.get('coherence_c_v', 0),
+                        'bertopic_silhouette_score': latest.get('silhouette_score', 0)
+                    })
+        except Exception:
+            pass
         
-        step2_4_duration = time.time() - step2_4_start
-        mlflow_logger.log_processing_time("bertopic_metrics", step2_4_duration)
-        
-        # ========== STEP 2.5: LDA COMPARISON (Optional) ==========
-        step2_5_start = time.time()
+        # ========== STEP 3: LDA MODELING (Optional) ==========
+        step3_start = time.time()
         lda_metrics = None
         
         # Check if LDA comparison is enabled in config
         lda_enabled = getattr(config, 'lda', None) and getattr(config.lda, 'enabled', False)
         
         if lda_enabled:
-            logger.info("Step 2.5: Running LDA comparison flow")
+            logger.info("Step 3: Running LDA modeling flow (cumulative corpus for fair benchmarking)")
             
             try:
+                # Use cumulative corpus for LDA - same scope as BERTopic's merged model
+                corpus_path = Path(config.storage.current_model_path).parent / (
+                    Path(config.storage.current_model_path).stem + "_corpus.json"
+                )
+                lda_documents = documents
+                if corpus_path.exists():
+                    try:
+                        with open(corpus_path, 'r') as f:
+                            lda_documents = json.load(f)
+                        logger.info(f"LDA using cumulative corpus: {len(lda_documents)} docs (same scope as BERTopic merged model)")
+                    except Exception as e:
+                        logger.warning(f"Could not load cumulative corpus for LDA: {e}, using current batch only")
+                
                 # Use the same number of topics as BERTopic discovered (excluding outlier topic -1)
                 bertopic_num_topics = len(set(topics)) - (1 if -1 in topics else 0)
                 
@@ -254,10 +214,10 @@ def complete_pipeline_flow(
                 if lda_num_topics is None or lda_num_topics == 'auto':
                     lda_num_topics = max(bertopic_num_topics, 5)  # Minimum 5 topics
                 
-                logger.info(f"Training LDA with {lda_num_topics} topics (BERTopic: {bertopic_num_topics} excluding outliers)")
+                logger.info(f"Training LDA with {lda_num_topics} topics on cumulative corpus (BERTopic: {bertopic_num_topics} excluding outliers)")
                 
                 lda_metrics = lda_comparison_flow(
-                    documents=documents,
+                    documents=lda_documents,
                     num_topics=lda_num_topics,
                     batch_id=batch_id,
                     window_start=start_date,
@@ -282,15 +242,15 @@ def complete_pipeline_flow(
                 logger.warning("Pipeline will continue without LDA metrics")
                 lda_metrics = {'status': 'error', 'error_message': str(e)}
             
-            step2_5_duration = time.time() - step2_5_start
-            mlflow_logger.log_processing_time("lda_comparison", step2_5_duration)
+            step3_duration = time.time() - step3_start
+            mlflow_logger.log_processing_time("lda_modeling", step3_duration)
         else:
-            logger.info("Step 2.5: LDA comparison disabled in config")
+            logger.info("Step 3: LDA modeling disabled in config")
         
-        # ========== STEP 3: DRIFT DETECTION ==========
+        # ========== STEP 4: DRIFT DETECTION ==========
         step3_start = time.time()
         if Path(config.storage.previous_model_path).exists():
-            logger.info("Step 3: Running drift detection flow")
+            logger.info("Step 4: Running drift detection flow")
             
             # Load previous batch documents for drift comparison
             previous_docs = []
@@ -325,12 +285,12 @@ def complete_pipeline_flow(
             alerts = drift_metrics.get('alerts', [])
             mlflow_logger.log_alerts(alerts)
         else:
-            logger.info("Step 3: Skipping drift detection (initial run or no previous model)")
+            logger.info("Step 4: Skipping drift detection (initial run or no previous model)")
             drift_metrics = None
             alerts = []
         
-        # ========== STEP 4: UPDATE STATE ==========
-        logger.info("Step 4: Updating processing state")
+        # ========== STEP 5: UPDATE STATE ==========
+        logger.info("Step 5: Updating processing state")
         
         storage.save_processing_state({
             'last_processed_timestamp': end_date,

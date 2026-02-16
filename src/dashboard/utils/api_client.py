@@ -139,6 +139,18 @@ class APIClient:
         response.raise_for_status()
         return response.json()
     
+    def get_bertopic_metrics_history(self) -> Dict[str, Any]:
+        """Get BERTopic metrics history for temporal charts."""
+        response = requests.get(f"{self.base_url}/api/v1/bertopic/history")
+        response.raise_for_status()
+        return response.json()
+    
+    def get_lda_metrics_history(self) -> Dict[str, Any]:
+        """Get LDA metrics history for temporal charts."""
+        response = requests.get(f"{self.base_url}/api/v1/lda/history")
+        response.raise_for_status()
+        return response.json()
+    
     # ── Internal helper ───────────────────────────────────────────
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Generic request method for flexibility."""

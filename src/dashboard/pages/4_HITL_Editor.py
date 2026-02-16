@@ -117,7 +117,7 @@ with tab_merge:
                 height=min(400, len(merge_ids) * 80 + 100),
                 margin=dict(t=10, b=30, l=10, r=10),
             )
-            st.plotly_chart(fig_hm, use_container_width=True)
+            st.plotly_chart(fig_hm, width='stretch')
 
         # Before / After size visualization
         before_sizes = {tid: next((t["count"] for t in topics if t["topic_id"] == tid), 0) for tid in merge_ids}
@@ -140,12 +140,12 @@ with tab_merge:
             margin=dict(t=20, b=20),
             height=280,
         )
-        st.plotly_chart(fig_ba, use_container_width=True)
+        st.plotly_chart(fig_ba, width='stretch')
 
         new_label = st.text_input("New label for the merged topic:", placeholder="e.g., Billing & Payment Issues")
         note = st.text_area("Note (optional):", placeholder="Reason for merging…")
 
-        if st.button("🔗 Merge Topics", type="primary", use_container_width=True):
+        if st.button("🔗 Merge Topics", type="primary", width='stretch'):
             if new_label:
                 with st.spinner("Merging topics and updating model…"):
                     try:
@@ -184,7 +184,7 @@ with tab_relabel:
         new_rl = st.text_input("New label:", key="new_rl", placeholder="Enter a descriptive label")
         rl_note = st.text_area("Note:", key="rl_note", placeholder="Reason for relabeling…")
 
-        if st.button("🏷️ Update Label", type="primary", use_container_width=True):
+        if st.button("🏷️ Update Label", type="primary", width='stretch'):
             if new_rl:
                 with st.spinner("Updating model…"):
                     try:
@@ -210,7 +210,7 @@ with tab_impact:
         margin=dict(t=30, b=10, l=10, r=10),
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    st.plotly_chart(fig_tree, use_container_width=True)
+    st.plotly_chart(fig_tree, width='stretch')
 
     # Sunburst
     st.markdown("### Topic Sunburst")
@@ -223,7 +223,7 @@ with tab_impact:
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(t=30, b=10),
     )
-    st.plotly_chart(fig_sun, use_container_width=True)
+    st.plotly_chart(fig_sun, width='stretch')
 
 # ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 with tab_audit:
@@ -236,7 +236,7 @@ with tab_audit:
             st.info("No audit entries yet — perform a merge or relabel to get started.")
         else:
             audit_df = pd.DataFrame(audit)
-            st.dataframe(audit_df, use_container_width=True, hide_index=True)
+            st.dataframe(audit_df, width='stretch', hide_index=True)
 
             # Timeline visualization
             if "timestamp" in audit_df.columns and "action_type" in audit_df.columns:

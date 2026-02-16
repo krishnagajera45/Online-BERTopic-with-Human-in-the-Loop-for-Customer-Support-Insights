@@ -1,17 +1,15 @@
-"""Model Benchmarking — BERTopic vs LDA comparative analysis."""
+"""Model Benchmarking — Temporal evaluation analysis of BERTopic vs LDA."""
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-import numpy as np
-import sys, json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.dashboard.utils.api_client import APIClient
 from src.dashboard.components.theme import (
-    inject_custom_css, page_header, metric_card, status_badge, render_footer,
+    inject_custom_css, page_header, metric_card, render_footer,
 )
 
 st.set_page_config(page_title="Model Benchmarking", page_icon="⚖️", layout="wide")
@@ -23,491 +21,264 @@ api = st.session_state.api_client
 
 page_header(
     "Model Benchmarking",
-    "Comparative analysis of BERTopic vs LDA across coherence, diversity, and cluster-quality metrics.",
+    "Temporal evaluation analysis — coherence, diversity, and silhouette over batches for BERTopic vs LDA.",
     "⚖️",
 )
 
-# ── Helper — load real BERTopic stats from topics API ────────────────────────
-@st.cache_data(ttl=120)
-def load_bertopic_live_stats():
-    """Pull live BERTopic numbers from the running system."""
-    try:
-        topics = api.get_topics()
-        if not topics:
-            return None
-        num_topics = len(topics)
-        all_keywords = []
-        for t in topics:
-            all_keywords.extend([w for w in t.get("top_words", [])])
-        unique_kw = len(set(all_keywords))
-        total_kw = len(all_keywords) if all_keywords else 1
-        diversity = unique_kw / total_kw if total_kw else 0
-        avg_kw = total_kw / num_topics if num_topics else 0
-        return {
-            "num_topics": num_topics,
-            "diversity": diversity,
-            "avg_keywords_per_topic": avg_kw,
-            "unique_keywords": unique_kw,
-        }
-    except Exception:
-        return None
-
-
-@st.cache_data(ttl=120)
-def load_lda_live_stats():
-    """Pull live LDA metrics from the API."""
-    try:
-        response = api.get_lda_metrics()
-        if response and response.get('status') != 'not_available':
-            return {
-                "num_topics": response.get('num_topics', 0),
-                "coherence_c_v": response.get('coherence_c_v', 0.0),
-                "diversity": response.get('diversity', 0.0),
-                "silhouette_score": response.get('silhouette_score', 0.0),
-                "training_time_seconds": response.get('training_time_seconds', 0.0),
-            }
-        return None
-    except Exception:
-        return None
-
-
-@st.cache_data(ttl=120)
-def load_bertopic_metrics():
-    """Pull live BERTopic evaluation metrics from the API."""
-    try:
-        response = api.get_bertopic_metrics()
-        if response and response.get('status') != 'not_available':
-            return {
-                "coherence_c_v": response.get('coherence_c_v'),
-                "silhouette_score": response.get('silhouette_score'),
-                "training_time_seconds": response.get('training_time_seconds'),
-            }
-        return None
-    except Exception:
-        return None
-
-
-live = load_bertopic_live_stats()
-lda_live = load_lda_live_stats()
-bertopic_metrics_live = load_bertopic_metrics()
-
-# ── Helper function for formatting values ────────────────────────────────────
-def fmt_val(val, precision=3, suffix=""):
-    """Format value or show N/A if None."""
-    if val is None:
-        return "N/A"
-    if isinstance(val, (int, float)):
-        if precision == 0:
-            return f"{int(val)}{suffix}"
-        return f"{val:.{precision}f}{suffix}"
-    return str(val)
-
-# ── Benchmark data ───────────────────────────────────────────────────────────
-# Use ONLY live data - no hardcoded defaults
-
-# BERTopic values
-bertopic_diversity = live["diversity"] if live else None
-bertopic_topics = live["num_topics"] if live else None
-bertopic_avg_keywords = live["avg_keywords_per_topic"] if live else None
-bertopic_coherence = bertopic_metrics_live["coherence_c_v"] if bertopic_metrics_live else None
-bertopic_silhouette = bertopic_metrics_live["silhouette_score"] if bertopic_metrics_live else None
-bertopic_training_time = bertopic_metrics_live["training_time_seconds"] if bertopic_metrics_live else None
-
-# LDA values - use live data only
-lda_coherence = lda_live["coherence_c_v"] if lda_live else None
-lda_diversity = lda_live["diversity"] if lda_live else None
-lda_silhouette = lda_live["silhouette_score"] if lda_live else None
-lda_topics = lda_live["num_topics"] if lda_live else None
-lda_training_time = lda_live["training_time_seconds"] if lda_live else None
-
-metrics = pd.DataFrame({
-    "Metric": [
-        "Topic Coherence (C_v)",
-        "Topic Diversity",
-        "Silhouette Score",
-        "Topic Count",
-        "Avg Keywords per Topic",
-        "Embedding Quality",
-        "Online Learning",
-        "Training Time (s)",
-    ],
-    "BERTopic": [
-        fmt_val(bertopic_coherence, 3),
-        fmt_val(bertopic_diversity, 3),
-        fmt_val(bertopic_silhouette, 3),
-        fmt_val(bertopic_topics, 0),
-        fmt_val(bertopic_avg_keywords, 1),
-        "Sentence-BERT",
-        "✅ Yes",
-        fmt_val(bertopic_training_time, 1, "s"),
-    ],
-    "LDA (Gensim)": [
-        fmt_val(lda_coherence, 3),
-        fmt_val(lda_diversity, 3),
-        fmt_val(lda_silhouette, 3),
-        fmt_val(lda_topics, 0),
-        "N/A",  # LDA doesn't track this
-        "BoW + TF-IDF",
-        "❌ No",
-        fmt_val(lda_training_time, 1, "s"),
-    ],
-})
-
-# Check if we have enough data for comparison charts
-has_comparison_data = (
-    bertopic_diversity is not None and 
-    lda_coherence is not None and 
-    lda_diversity is not None and 
-    lda_silhouette is not None
-)
-
-# Numeric sub-table for charts (only if we have data)
-if has_comparison_data:
-    numeric_metrics = pd.DataFrame({
-        "Metric": [
-            "Topic Coherence (C_v)",
-            "Topic Diversity",
-            "Silhouette Score",
-        ],
-        "BERTopic": [
-            bertopic_coherence if bertopic_coherence is not None else 0,
-            bertopic_diversity,
-            bertopic_silhouette if bertopic_silhouette is not None else 0
-        ],
-        "LDA": [lda_coherence, lda_diversity, lda_silhouette],
-    })
-else:
-    numeric_metrics = None
-
-# ── KPI row ──────────────────────────────────────────────────────────────────
-# Show data availability status
-if not live and not lda_live:
-    st.warning("⚠️ **No live metrics available**. Run the pipeline to generate comparison data: `./run_full_system.sh`")
-elif not lda_live:
-    st.info("ℹ️ **LDA metrics not yet available**. Enable LDA in config and run pipeline to see comparison.")
+# ── Load metrics history (with auto-refresh on batch completion) ─────────────────
+@st.cache_data(ttl=60)
+def load_metrics_history():
+    """Load temporal metrics for both models. TTL=60s for refresh after pipeline runs."""
+    import json
+    from pathlib import Path
     
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    status = "Live Data ✓" if (live and lda_live) else "Awaiting Data"
-    metric_card("🏆", status, "Comparison Status")
-with k2:
-    metrics_available = sum([
-        lda_coherence is not None,
-        lda_diversity is not None,
-        lda_silhouette is not None
-    ])
-    metric_card("📏", str(metrics_available) + "/3", "LDA Metrics Available")
-with k3:
-    metric_card("🧩", fmt_val(bertopic_topics, 0), "BERTopic Topics")
-with k4:
-    diversity_pct = f"{bertopic_diversity:.0%}" if bertopic_diversity is not None else "N/A"
-    metric_card("📐", diversity_pct, "BERTopic Diversity")
-
-# ── Tabs ─────────────────────────────────────────────────────────────────────
-tab_compare, tab_radar, tab_detail, tab_trade, tab_method = st.tabs([
-    "📊 Comparison Table",
-    "🕸️ Radar Chart",
-    "📈 Metric Deep-Dive",
-    "⚖️ Trade-offs",
-    "📝 Methodology Notes",
-])
-
-# ── Tab 1: Comparison Table ──────────────────────────────────────────────────
-with tab_compare:
-    st.markdown("### Full Comparison")
-    st.markdown("""
-    <style>
-    div[data-testid="stDataFrame"] table { font-size: 1rem; }
-    </style>
-    """, unsafe_allow_html=True)
-    st.dataframe(metrics, hide_index=True, use_container_width=True)
-
-    st.markdown("---")
-
-    # Bar chart side-by-side (only if we have numeric data)
-    if has_comparison_data and numeric_metrics is not None:
-        bar_df = numeric_metrics.melt(id_vars="Metric", var_name="Model", value_name="Score")
-        fig_bar = px.bar(
-            bar_df,
-            x="Metric",
-            y="Score",
-            color="Model",
-            barmode="group",
-            color_discrete_map={"BERTopic": "#6C5CE7", "LDA": "#636E72"},
-        )
-        fig_bar.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_title="",
-            yaxis_title="Score",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-            height=380,
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
-    else:
-        st.warning("📊 Charts will appear after running the pipeline with LDA enabled.")
-
-# ── Tab 2: Radar Chart ──────────────────────────────────────────────────────
-with tab_radar:
-    st.markdown("### Multi-Axis Radar Comparison")
-
-    if has_comparison_data and numeric_metrics is not None:
-        categories = numeric_metrics["Metric"].tolist()
-        bert_vals = numeric_metrics["BERTopic"].tolist()
-        lda_vals = numeric_metrics["LDA"].tolist()
-        # close polygon
-        categories += [categories[0]]
-        bert_vals += [bert_vals[0]]
-        lda_vals += [lda_vals[0]]
-
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(
-            r=bert_vals, theta=categories, fill="toself", name="BERTopic",
-            line_color="#6C5CE7", fillcolor="rgba(108,92,231,0.25)",
-        ))
-        fig_radar.add_trace(go.Scatterpolar(
-            r=lda_vals, theta=categories, fill="toself", name="LDA",
-            line_color="#636E72", fillcolor="rgba(99,110,114,0.20)",
-        ))
-        fig_radar.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            polar=dict(
-                bgcolor="rgba(0,0,0,0)",
-                radialaxis=dict(visible=True, range=[0, 1], color="#636E72"),
-                angularaxis=dict(color="#DFE6E9"),
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
-            height=460,
-        )
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-        # Dynamic insight based on actual data
-        if lda_diversity is not None and bertopic_diversity is not None:
-            if bertopic_diversity > lda_diversity:
-                st.info("⬆️ Larger area = better overall quality. BERTopic shows higher diversity and better cluster separation.")
-            else:
-                st.info("⬆️ Larger area = better overall quality. Compare the performance across different metrics.")
-    else:
-        st.warning("🕸️ **Radar chart will appear after running the pipeline.**")
-        st.markdown("""
-        To generate the radar chart:
-        1. Ensure `lda.enabled: true` in `config/config.yaml`
-        2. Run: `./run_full_system.sh`
-        3. Refresh this page
-        """)
-
-# ── Tab 3: Metric Deep-Dive ─────────────────────────────────────────────────
-with tab_detail:
-    st.markdown("### Metric Explanations")
-
-    detail_data = [
-        {
-            "name": "Topic Coherence (C_v)",
-            "icon": "📐",
-            "bert": bertopic_coherence,
-            "lda": lda_coherence,
-            "desc": "Measures how semantically similar the top words in a topic are. Higher means more interpretable topics. BERTopic leverages transformer embeddings for richer semantics.",
-        },
-        {
-            "name": "Topic Diversity",
-            "icon": "🎯",
-            "bert": round(bertopic_diversity, 3),
-            "lda": round(lda_diversity, 3),
-            "desc": "Proportion of unique words across all topics. Higher diversity means less keyword overlap between topics — each topic is more distinct.",
-        },
-        {
-            "name": "Silhouette Score",
-            "icon": "🧮",
-            "bert": bertopic_silhouette,
-            "lda": lda_silhouette,
-            "desc": "Measures cluster quality: how similar documents are to their own topic vs. other topics. Range −1 to 1; higher is better. BERTopic's HDBSCAN produces tighter clusters.",
-        },
-    ]
-
-    for d in detail_data:
-        with st.container():
-            st.markdown(f"#### {d['icon']} {d['name']}")
-            c1, c2 = st.columns([3, 2])
-            with c1:
-                st.markdown(d["desc"])
-                
-                # Only show winner comparison if both values are available
-                if d["bert"] is not None and d["lda"] is not None:
-                    winner = "BERTopic" if d["bert"] >= d["lda"] else "LDA"
-                    diff_pct = abs(d["bert"] - d["lda"]) / max(d["lda"], 0.01) * 100
-                    st.markdown(f"**Winner**: {status_badge(winner, 'success' if winner == 'BERTopic' else 'medium')}   (+{diff_pct:.0f}% improvement)", unsafe_allow_html=True)
-                else:
-                    st.markdown("**Status**: Awaiting live metrics from pipeline")
-                    
-            with c2:
-                if d["bert"] is not None and d["lda"] is not None:
-                    fig_mini = go.Figure()
-                    fig_mini.add_trace(go.Bar(x=["BERTopic"], y=[d["bert"]], marker_color="#6C5CE7", name="BERTopic", text=[round(d["bert"], 3)], textposition="outside"))
-                    fig_mini.add_trace(go.Bar(x=["LDA"], y=[d["lda"]], marker_color="#636E72", name="LDA", text=[round(d["lda"], 3)], textposition="outside"))
-                    fig_mini.update_layout(
-                        template="plotly_dark",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        height=200,
-                        margin=dict(l=20, r=20, t=10, b=30),
-                        showlegend=False,
-                        yaxis=dict(range=[0, max(d["bert"], d["lda"]) * 1.35]),
-                    )
-                    st.plotly_chart(fig_mini, use_container_width=True)
-                else:
-                    st.info("📊 Chart will appear after running pipeline")
-            st.markdown("---")
-
-# ── Tab 4: Trade-offs ────────────────────────────────────────────────────────
-with tab_trade:
-    st.markdown("### Trade-Off Analysis")
-
-    trade_col1, trade_col2 = st.columns(2)
-
-    with trade_col1:
-        st.markdown("""
-        <div class="info-card">
-            <h3>✅ BERTopic Strengths</h3>
-            <ul>
-                <li><strong>Semantic Understanding</strong> — Sentence-BERT captures meaning, not just word frequency</li>
-                <li><strong>Online Learning</strong> — Incrementally merges new batches without full retraining</li>
-                <li><strong>Automatic Topic Count</strong> — HDBSCAN discovers the natural number of topics</li>
-                <li><strong>Rich Representations</strong> — c-TF-IDF gives class-based importance, not just frequency</li>
-                <li><strong>Drift Detection</strong> — Track centroid shifts and prevalence changes over time</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="info-card">
-            <h3>⚠️ BERTopic Limitations</h3>
-            <ul>
-                <li><strong>Higher Compute Cost</strong> — Transformer embeddings are GPU-hungry</li>
-                <li><strong>Slower Inference</strong> — Each prediction requires embedding + nearest-neighbour search</li>
-                <li><strong>Outlier Topics</strong> — HDBSCAN can create a large outlier topic (−1)</li>
-                <li><strong>Black-Box Embeddings</strong> — Harder to explain why a document maps to a topic</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with trade_col2:
-        st.markdown("""
-        <div class="info-card">
-            <h3>✅ LDA Strengths</h3>
-            <ul>
-                <li><strong>Interpretability</strong> — Probabilistic model with clear generative story</li>
-                <li><strong>Fast Training</strong> — Variational inference on BoW is lightweight</li>
-                <li><strong>Low Memory</strong> — No large transformer model needed</li>
-                <li><strong>Established</strong> — Well-understood evaluation & tuning methods</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="info-card">
-            <h3>⚠️ LDA Limitations</h3>
-            <ul>
-                <li><strong>No Online Merging</strong> — Must retrain on full corpus when data grows</li>
-                <li><strong>Fixed K</strong> — Number of topics must be specified upfront</li>
-                <li><strong>Bag-of-Words</strong> — Ignores word order and context</li>
-                <li><strong>Lower Coherence</strong> — Tends to produce less interpretable topics on short texts</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # Compute-vs-quality scatterplot (only if we have the data)
-    st.markdown("#### Compute vs Quality")
-    
-    if (bertopic_training_time is not None and lda_training_time is not None and 
-        lda_coherence is not None):
-        cq_df = pd.DataFrame({
-            "Model": ["BERTopic", "LDA"],
-            "Training Time (s)": [bertopic_training_time or 0, lda_training_time],
-            "Coherence": [bertopic_coherence or 0, lda_coherence],
-        })
-        fig_cq = px.scatter(
-            cq_df, x="Training Time (s)", y="Coherence",
-            color="Model", size=[30, 30], text="Model",
-            color_discrete_map={"BERTopic": "#6C5CE7", "LDA": "#636E72"},
-        )
-        fig_cq.update_traces(textposition="top center")
-        fig_cq.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=320,
-            showlegend=False,
-        )
-        st.plotly_chart(fig_cq, use_container_width=True)
+    # Try API first, fallback to local files
+    try:
+        bertopic = api.get_bertopic_metrics_history()
+        lda = api.get_lda_metrics_history()
+        return bertopic.get("batches", []), lda.get("batches", [])
+    except Exception:
+        # Fallback: read metrics files directly
+        bt_batches, lda_batches = [], []
+        try:
+            bt_path = Path("outputs/metrics/bertopic_metrics.json")
+            if bt_path.exists():
+                with open(bt_path) as f:
+                    bt_data = json.load(f)
+                    bt_batches = bt_data.get("batches", [])
+        except Exception:
+            pass
         
-        # Dynamic caption based on actual values
-        if bertopic_training_time and lda_training_time and bertopic_coherence and lda_coherence:
-            time_ratio = bertopic_training_time / lda_training_time
-            coherence_diff_pct = ((bertopic_coherence - lda_coherence) / lda_coherence * 100)
-            st.caption(f"💡 **Live Metrics**: BERTopic trades ~{time_ratio:.1f}× training time for {coherence_diff_pct:.0f}% higher coherence.")
-        else:
-            st.caption("ℹ️ **Note**: Some metrics are not yet available. Run pipeline for complete comparison.")
-    else:
-        st.warning("⏱️ **Training time data not yet available**. Run the pipeline to see compute vs quality trade-offs.")
-        st.markdown("""
-        This chart will show:
-        - Training time comparison
-        - Coherence score comparison
-        - Performance/quality trade-off analysis
-        """)
+        try:
+            lda_path = Path("outputs/metrics/lda_metrics.json")
+            if lda_path.exists():
+                with open(lda_path) as f:
+                    lda_data = json.load(f)
+                    lda_batches = lda_data.get("batches", [])
+        except Exception:
+            pass
+        
+        return bt_batches, lda_batches
 
-# ── Tab 5: Methodology Notes ────────────────────────────────────────────────
-with tab_method:
-    st.markdown("### Evaluation Methodology")
+bertopic_batches, lda_batches = load_metrics_history()
 
-    # Get actual config values dynamically
-    bertopic_topics_str = fmt_val(bertopic_topics, 0) if bertopic_topics else "Auto-detected"
-    lda_topics_str = fmt_val(lda_topics, 0) if lda_topics else "Configured"
+# ── Model cards: average metrics so far ────────────────────────────────────────
+st.markdown("### 📊 Model Performance Summary")
+st.caption("Average evaluation metrics across all batches processed so far.")
+
+def safe_avg(vals):
+    vals = [v for v in vals if v is not None and isinstance(v, (int, float))]
+    return sum(vals) / len(vals) if vals else 0.0
+
+bt_coherence = [b.get("coherence_c_v") for b in bertopic_batches]
+bt_diversity = [b.get("diversity") for b in bertopic_batches]
+bt_silhouette = [b.get("silhouette_score") for b in bertopic_batches]
+lda_coherence = [b.get("coherence_c_v") for b in lda_batches]
+lda_diversity = [b.get("diversity") for b in lda_batches]
+lda_silhouette = [b.get("silhouette_score") for b in lda_batches]
+
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown("""
+    <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+        <h3>📐 Coherence (C_v)</h3>
+        <p style="font-size:1.4rem; margin:0.5rem 0;">
+            <span style="color:#6C5CE7;">BERTopic</span> {bt:.3f} &nbsp;·&nbsp;
+            <span style="color:#636E72;">LDA</span> {lda:.3f}
+        </p>
+        <p style="font-size:0.8rem; color:#636E72;">Higher = more interpretable topics</p>
+    </div>
+    """.format(
+        bt=safe_avg(bt_coherence) if bertopic_batches else 0,
+        lda=safe_avg(lda_coherence) if lda_batches else 0
+    ), unsafe_allow_html=True)
+with c2:
+    st.markdown("""
+    <div class="info-card" style="border-left: 4px solid #00CEC9;">
+        <h3>🎯 Diversity</h3>
+        <p style="font-size:1.4rem; margin:0.5rem 0;">
+            <span style="color:#6C5CE7;">BERTopic</span> {bt:.3f} &nbsp;·&nbsp;
+            <span style="color:#636E72;">LDA</span> {lda:.3f}
+        </p>
+        <p style="font-size:0.8rem; color:#636E72;">Higher = less keyword overlap</p>
+    </div>
+    """.format(
+        bt=safe_avg(bt_diversity) if bertopic_batches else 0,
+        lda=safe_avg(lda_diversity) if lda_batches else 0
+    ), unsafe_allow_html=True)
+with c3:
+    st.markdown("""
+    <div class="info-card" style="border-left: 4px solid #FD79A8;">
+        <h3>🧮 Silhouette Score</h3>
+        <p style="font-size:1.4rem; margin:0.5rem 0;">
+            <span style="color:#6C5CE7;">BERTopic</span> {bt:.3f} &nbsp;·&nbsp;
+            <span style="color:#636E72;">LDA</span> {lda:.3f}
+        </p>
+        <p style="font-size:0.8rem; color:#636E72;">Higher = better cluster separation</p>
+    </div>
+    """.format(
+        bt=safe_avg(bt_silhouette) if bertopic_batches else 0,
+        lda=safe_avg(lda_silhouette) if lda_batches else 0
+    ), unsafe_allow_html=True)
+
+st.divider()
+
+# ── Temporal evaluation charts ─────────────────────────────────────────────────
+st.markdown("### 📈 Temporal Evaluation Analysis")
+refresh_col, _ = st.columns([1, 4])
+with refresh_col:
+    if st.button("🔄 Refresh Metrics", help="Reload metrics after pipeline run"):
+        load_metrics_history.clear()
+        st.rerun()
+st.markdown("""
+<div class="info-card" style="background: linear-gradient(135deg, rgba(108,92,231,0.12), rgba(0,206,201,0.08)); border: 2px solid rgba(108,92,231,0.35); padding: 1rem; margin-bottom: 1rem;">
+    <p style="margin:0; color:#DFE6E9; font-size:0.9rem;">
+    📊 <strong>Live charts</strong> — Metrics are computed from merged/cumulative models after each batch.
+    Click <strong>Refresh Metrics</strong> above after running the pipeline to see updated trends.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# Build unified batch order (chronological by timestamp)
+bertopic_map = {b["batch_id"]: b for b in bertopic_batches if b.get("batch_id")}
+lda_map = {b["batch_id"]: b for b in lda_batches if b.get("batch_id")}
+all_batch_ids = list(set(bertopic_map.keys()) | set(lda_map.keys()))
+
+def sort_key(bid):
+    ts = bertopic_map.get(bid, lda_map.get(bid, {})).get("timestamp") or ""
+    return (ts, bid)
+
+batch_ids = sorted(all_batch_ids, key=sort_key)
+
+if not batch_ids:
+    st.info("📊 **No temporal data yet.** Run the pipeline to process batches — metrics will appear here after each run.")
+else:
+    # Extract timestamps for x-axis (use actual training/execution time)
+    from datetime import datetime
     
-    st.markdown(f"""
-    <div class="info-card">
-        <h3>📋 Experimental Setup</h3>
-        <table class="comparison-table">
-            <tr><th>Parameter</th><th>BERTopic</th><th>LDA (Gensim)</th></tr>
-            <tr><td>Dataset</td><td colspan="2">Twitter Customer Support (TwCS)</td></tr>
-            <tr><td>Preprocessing</td><td>Minimal (BERT handles context)</td><td>Tokenize + stopwords + lemmatize</td></tr>
-            <tr><td>Embedding</td><td>all-MiniLM-L6-v2 (384-dim)</td><td>BoW / TF-IDF</td></tr>
-            <tr><td>Dim Reduction</td><td>UMAP (5 components, cosine)</td><td>N/A</td></tr>
-            <tr><td>Clustering</td><td>HDBSCAN (auto min_cluster)</td><td>Variational Bayes</td></tr>
-            <tr><td>Topic Count</td><td>{bertopic_topics_str}</td><td>{lda_topics_str}</td></tr>
-            <tr><td>Representation</td><td>c-TF-IDF + Ollama labels</td><td>Top-N words per topic</td></tr>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
+    def get_timestamp(batch_id):
+        """Get timestamp from either BERTopic or LDA batch."""
+        bt_batch = bertopic_map.get(batch_id, {})
+        lda_batch = lda_map.get(batch_id, {})
+        ts = bt_batch.get("timestamp") or lda_batch.get("timestamp")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts)
+            except:
+                return None
+        return None
+    
+    timestamps = [get_timestamp(bid) for bid in batch_ids]
+    # Filter out None values
+    valid_indices = [i for i, ts in enumerate(timestamps) if ts is not None]
+    valid_batch_ids = [batch_ids[i] for i in valid_indices]
+    valid_timestamps = [timestamps[i] for i in valid_indices]
+    
+    if not valid_timestamps:
+        st.warning("⚠️ No valid timestamp data found in metrics.")
+    else:
+        def make_temporal_chart(metric_key, title, ylabel):
+            bt_vals = [bertopic_map.get(bid, {}).get(metric_key) for bid in valid_batch_ids]
+            lda_vals = [lda_map.get(bid, {}).get(metric_key) for bid in valid_batch_ids]
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=valid_timestamps, y=bt_vals, mode="lines+markers", name="BERTopic",
+                line=dict(color="#6C5CE7", width=3), marker=dict(size=8),
+                hovertemplate="<b>%{x|%Y-%m-%d %H:%M}</b><br>" + ylabel + ": %{y:.4f}<extra></extra>"
+            ))
+            fig.add_trace(go.Scatter(
+                x=valid_timestamps, y=lda_vals, mode="lines+markers", name="LDA",
+                line=dict(color="#636E72", width=3), marker=dict(size=8),
+                hovertemplate="<b>%{x|%Y-%m-%d %H:%M}</b><br>" + ylabel + ": %{y:.4f}<extra></extra>"
+            ))
+            fig.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                title=dict(text=title, font=dict(size=14, color="#B2BEC3")),
+                xaxis=dict(
+                    title="Training Time",
+                    showgrid=True,
+                    gridcolor="rgba(99,110,114,0.15)",
+                    tickformat="%m/%d\n%H:%M",  # Date on top line, time on bottom
+                ),
+                yaxis=dict(title=ylabel, showgrid=True, gridcolor="rgba(99,110,114,0.15)"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                height=320,
+                margin=dict(t=50, b=60, l=50, r=20),
+                hovermode="x unified"
+            )
+            return fig
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.plotly_chart(
+            make_temporal_chart("coherence_c_v", "Topic Coherence (C_v) Over Time", "Coherence"),
+            width="stretch"
+        )
+    with col2:
+        st.plotly_chart(
+            make_temporal_chart("diversity", "Topic Diversity Over Time", "Diversity"),
+            width="stretch"
+        )
+    with col3:
+        st.plotly_chart(
+            make_temporal_chart("silhouette_score", "Silhouette Score Over Time", "Silhouette"),
+            width="stretch"
+        )
 
-    st.markdown("""
-    <div class="info-card">
-        <h3>📊 Metrics Definitions</h3>
-        <table class="comparison-table">
-            <tr><th>Metric</th><th>Formula / Method</th><th>Range</th></tr>
-            <tr><td>Coherence (C_v)</td><td>Sliding window + NPMI + cosine similarity</td><td>0 → 1</td></tr>
-            <tr><td>Diversity</td><td>|unique words in top-K| / (K × N_topics)</td><td>0 → 1</td></tr>
-            <tr><td>Silhouette</td><td>(b − a) / max(a, b) per sample, averaged</td><td>−1 → 1</td></tr>
-        </table>
-    </div>
-    """, unsafe_allow_html=True)
+st.divider()
 
+# ── Documentation tab ───────────────────────────────────────────────────────────
+st.markdown("### 📝 Evaluation Methodology & Definitions")
+
+with st.expander("📐 Topic Coherence (C_v)", expanded=True):
     st.markdown("""
-    <div class="info-card">
-        <h3>📝 Notes for Evaluation Report</h3>
-        <ul>
-            <li>Coherence and diversity are computed on the <strong>top 10 keywords per topic</strong>.</li>
-            <li>Silhouette is measured on <strong>UMAP-reduced embeddings</strong> (BERTopic) vs. TF-IDF vectors (LDA).</li>
-            <li>BERTopic uses <strong>online learning</strong> with merge_models for batch updates.</li>
-            <li>LDA is trained on <strong>current batch only</strong> (no accumulation across batches).</li>
-            <li>Both models use the <strong>same preprocessed data</strong> from upstream flow.</li>
-            <li>All experiments are logged via <strong>MLflow</strong> for reproducibility.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+    **Formula / Method:** Sliding window + NPMI + cosine similarity over top-K words per topic.
+    
+    **Range:** 0 → 1 (higher is better)
+    
+    Measures how semantically similar the top words in a topic are. Higher coherence means more interpretable,
+    human-readable topics. BERTopic leverages transformer embeddings for richer semantics.
+    """)
+
+with st.expander("🎯 Topic Diversity"):
+    st.markdown("""
+    **Formula:** |unique words in top-K| / (K × N_topics)
+    
+    **Range:** 0 → 1 (higher is better)
+    
+    Proportion of unique words across all topics. Higher diversity means less keyword overlap between topics —
+    each topic is more distinct.
+    """)
+
+with st.expander("🧮 Silhouette Score"):
+    st.markdown("""
+    **Formula:** (b − a) / max(a, b) per sample, averaged. Where *a* = mean intra-cluster distance,
+    *b* = mean nearest-cluster distance.
+    
+    **Range:** −1 → 1 (higher is better)
+    
+    Measures cluster quality: how similar documents are to their own topic vs. other topics.
+    BERTopic's HDBSCAN typically produces tighter clusters.
+    """)
+
+with st.expander("⚙️ Experimental Setup"):
+    st.markdown("""
+    | Parameter | BERTopic | LDA (Gensim) |
+    |-----------|----------|--------------|
+    | Dataset | Twitter Customer Support (TwCS) | Same |
+    | Preprocessing | Minimal (BERT handles context) | Tokenize + stopwords + lemmatize |
+    | Embedding | all-MiniLM-L6-v2 (384-dim) | BoW / TF-IDF |
+    | Dim Reduction | UMAP (5 components, cosine) | N/A |
+    | Clustering | HDBSCAN (auto min_cluster) | Variational Bayes |
+    | Topic Count | Auto-detected | Same as BERTopic (for fair comparison) |
+    | Representation | c-TF-IDF + Ollama labels | Top-N words per topic |
+    | Merging | merge_models (cumulative) | Cumulative corpus retrain |
+    
+    **Fair benchmarking:** Both models are evaluated on the same cumulative scope — BERTopic via merge_models,
+    LDA via training on the full cumulative corpus. Metrics are computed after each batch.
+    """)
 
 render_footer()

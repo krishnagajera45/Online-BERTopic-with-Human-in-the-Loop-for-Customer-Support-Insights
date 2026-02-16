@@ -12,6 +12,15 @@ logger = setup_logger(__name__, "logs/api.log")
 router = APIRouter()
 
 
+def _load_lda_metrics() -> Dict[str, Any]:
+    """Load LDA metrics from file."""
+    metrics_path = Path("outputs/metrics/lda_metrics.json")
+    if not metrics_path.exists():
+        return {}
+    with open(metrics_path, 'r') as f:
+        return json.load(f)
+
+
 @router.get("/", response_model=Dict[str, Any])
 async def get_lda_metrics():
     """
@@ -27,11 +36,9 @@ async def get_lda_metrics():
         - topics: List of topics with top words
     """
     try:
-        metrics_path = Path("outputs/metrics/lda_metrics.json")
+        data = _load_lda_metrics()
         
-        if not metrics_path.exists():
-            # Return placeholder metrics if file doesn't exist yet
-            logger.warning("LDA metrics file not found, returning placeholder")
+        if not data:
             return {
                 "status": "not_available",
                 "message": "LDA metrics not yet computed. Run pipeline to generate metrics.",
@@ -42,9 +49,17 @@ async def get_lda_metrics():
                 "training_time_seconds": 0.0
             }
         
-        # Load metrics from file
-        with open(metrics_path, 'r') as f:
-            metrics = json.load(f)
+        # New format: use latest; legacy: use root
+        metrics = data.get("latest", data)
+        if not metrics.get("coherence_c_v") and "batches" in data and data["batches"]:
+            latest_batch = data["batches"][-1]
+            metrics = {**metrics, **latest_batch}
+        
+        # Include topics from latest if present
+        if "topics" in data.get("latest", {}):
+            metrics["topics"] = data["latest"]["topics"]
+        elif "topics" in data:
+            metrics["topics"] = data["topics"]
         
         logger.info(f"Retrieved LDA metrics: {metrics.get('num_topics', 0)} topics")
         return metrics
@@ -57,6 +72,31 @@ async def get_lda_metrics():
         )
 
 
+@router.get("/history", response_model=Dict[str, Any])
+async def get_lda_metrics_history():
+    """
+    Get LDA metrics history for temporal analysis (all batches).
+    """
+    try:
+        data = _load_lda_metrics()
+        batches = data.get("batches", [])
+        # Migrate legacy format to batches
+        if not batches and data.get("batch_id"):
+            batches = [{
+                "batch_id": data.get("batch_id"),
+                "coherence_c_v": data.get("coherence_c_v"),
+                "diversity": data.get("diversity"),
+                "silhouette_score": data.get("silhouette_score"),
+                "num_topics": data.get("num_topics"),
+                "timestamp": data.get("timestamp"),
+                "training_time_seconds": data.get("training_time_seconds") or data.get("total_time_seconds"),
+            }]
+        return {"batches": batches, "status": "ok" if batches else "not_available"}
+    except Exception as e:
+        logger.error(f"Error retrieving LDA metrics history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/comparison", response_model=Dict[str, Any])
 async def get_model_comparison():
     """
@@ -66,24 +106,14 @@ async def get_model_comparison():
         Dictionary with comparative metrics for both models
     """
     try:
-        # Load LDA metrics
-        lda_metrics_path = Path("outputs/metrics/lda_metrics.json")
-        lda_metrics = {}
+        # Load LDA metrics (handle new format with "latest")
+        lda_data = _load_lda_metrics()
+        lda_metrics = lda_data.get("latest", lda_data) if lda_data else {}
         
-        if lda_metrics_path.exists():
-            with open(lda_metrics_path, 'r') as f:
-                lda_metrics = json.load(f)
-        
-        # Load BERTopic metrics from bertopic_metrics.json
-        bertopic_metrics = {}
-        bertopic_metrics_path = Path("outputs/metrics/bertopic_metrics.json")
-        
-        if bertopic_metrics_path.exists():
-            try:
-                with open(bertopic_metrics_path, 'r') as f:
-                    bertopic_metrics = json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load BERTopic metrics: {e}")
+        # Load BERTopic metrics (handle new format with "latest")
+        from src.api.endpoints.bertopic_metrics import _load_bertopic_metrics
+        bt_data = _load_bertopic_metrics()
+        bertopic_metrics = bt_data.get("latest", bt_data) if bt_data else {}
         
         # Also load document count from topics metadata
         total_documents = 0

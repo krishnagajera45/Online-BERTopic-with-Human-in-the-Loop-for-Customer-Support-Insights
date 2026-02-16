@@ -224,10 +224,12 @@ def save_bertopic_metrics_task(
     output_path: str = "outputs/metrics/bertopic_metrics.json"
 ) -> str:
     """
-    Save BERTopic metrics to file.
+    Save BERTopic metrics to file. Appends per-batch metrics for temporal analysis.
+    
+    Structure: {"batches": [{batch_id, coherence_c_v, diversity, ...}, ...], "latest": {...}}
     
     Args:
-        metrics: Dictionary with BERTopic metrics
+        metrics: Dictionary with BERTopic metrics (must include batch_id)
         output_path: Path to save metrics
         
     Returns:
@@ -239,17 +241,43 @@ def save_bertopic_metrics_task(
     # Ensure directory exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
-    # Load existing metrics if they exist
+    # Load existing data
+    data = {"batches": [], "latest": {}}
     if Path(output_path).exists():
-        with open(output_path, 'r') as f:
-            existing_metrics = json.load(f)
-        # Update with new metrics
-        existing_metrics.update(metrics)
-        metrics = existing_metrics
+        try:
+            with open(output_path, 'r') as f:
+                data = json.load(f)
+            if "batches" not in data:
+                data["batches"] = []
+        except Exception:
+            data = {"batches": [], "latest": {}}
     
-    # Save metrics
+    # Append this batch's metrics to history (avoid duplicates by batch_id)
+    batch_id = metrics.get("batch_id")
+    batch_record = {
+        "batch_id": batch_id,
+        "coherence_c_v": metrics.get("coherence_c_v", 0.0),
+        "diversity": metrics.get("diversity", 0.0),
+        "silhouette_score": metrics.get("silhouette_score", 0.0),
+        "num_topics": metrics.get("num_topics", 0),
+        "timestamp": metrics.get("timestamp", ""),
+        "training_time_seconds": metrics.get("training_time_seconds", 0.0),
+    }
+    
+    # Replace existing batch record if same batch_id, else append
+    existing_ids = [b.get("batch_id") for b in data["batches"]]
+    if batch_id in existing_ids:
+        idx = existing_ids.index(batch_id)
+        data["batches"][idx] = batch_record
+    else:
+        data["batches"].append(batch_record)
+    
+    # Keep latest for backward compatibility
+    data["latest"] = {k: v for k, v in metrics.items() if k != "batches"}
+    
+    # Save
     with open(output_path, 'w') as f:
-        json.dump(metrics, f, indent=2)
+        json.dump(data, f, indent=2)
     
-    logger.info("BERTopic metrics saved successfully")
+    logger.info(f"BERTopic metrics saved ({len(data['batches'])} batches in history)")
     return output_path

@@ -323,10 +323,12 @@ def save_lda_metrics_task(
     output_path: str = "outputs/metrics/lda_metrics.json"
 ) -> str:
     """
-    Save LDA metrics to file.
+    Save LDA metrics to file. Appends per-batch metrics for temporal analysis.
+    
+    Structure: {"batches": [{batch_id, coherence_c_v, diversity, ...}, ...], "latest": {...}}
     
     Args:
-        metrics: Dictionary with LDA metrics
+        metrics: Dictionary with LDA metrics (must include batch_id)
         output_path: Path to save metrics
         
     Returns:
@@ -338,9 +340,43 @@ def save_lda_metrics_task(
     # Ensure directory exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
-    # Save metrics
-    with open(output_path, 'w') as f:
-        json.dump(metrics, f, indent=2)
+    # Load existing data
+    data = {"batches": [], "latest": {}}
+    if Path(output_path).exists():
+        try:
+            with open(output_path, 'r') as f:
+                data = json.load(f)
+            if "batches" not in data:
+                data["batches"] = []
+        except Exception:
+            data = {"batches": [], "latest": {}}
     
-    logger.info("LDA metrics saved successfully")
+    # Append this batch's metrics to history
+    batch_id = metrics.get("batch_id")
+    batch_record = {
+        "batch_id": batch_id,
+        "coherence_c_v": metrics.get("coherence_c_v", 0.0),
+        "diversity": metrics.get("diversity", 0.0),
+        "silhouette_score": metrics.get("silhouette_score", 0.0),
+        "num_topics": metrics.get("num_topics", 0),
+        "timestamp": metrics.get("timestamp", ""),
+        "training_time_seconds": metrics.get("training_time_seconds") or metrics.get("total_time_seconds", 0.0),
+    }
+    
+    existing_ids = [b.get("batch_id") for b in data["batches"]]
+    if batch_id in existing_ids:
+        idx = existing_ids.index(batch_id)
+        data["batches"][idx] = batch_record
+    else:
+        data["batches"].append(batch_record)
+    
+    # Keep latest + full metrics for backward compatibility
+    data["latest"] = {k: v for k, v in metrics.items() if k != "batches"}
+    data["status"] = metrics.get("status", "success")
+    
+    # Save
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    logger.info(f"LDA metrics saved ({len(data['batches'])} batches in history)")
     return output_path

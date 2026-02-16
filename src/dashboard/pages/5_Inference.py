@@ -55,9 +55,9 @@ with input_col:
 
     bc1, bc2 = st.columns(2)
     with bc1:
-        predict = st.button("🔮 Predict Topic", type="primary", use_container_width=True)
+        predict = st.button("🔮 Predict Topic", type="primary", width='stretch')
     with bc2:
-        if st.button("🗑️ Clear", use_container_width=True):
+        if st.button("🗑️ Clear", width='stretch'):
             st.rerun()
 
 with result_col:
@@ -132,7 +132,7 @@ with result_col:
                         height=220,
                         margin=dict(t=40, b=10),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
 
                     # Interpretation
                     st.markdown("#### 💡 Interpretation")

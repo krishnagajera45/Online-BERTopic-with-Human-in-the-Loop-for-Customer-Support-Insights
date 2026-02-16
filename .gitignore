@@ -77,3 +77,4 @@ docker-compose.yml
 
 all.md
 models/*
+outputs/*
