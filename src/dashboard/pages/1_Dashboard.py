@@ -186,14 +186,19 @@ with divider_col:
 with batch_col:
     st.markdown("### 🔄 Current Batch")
     if batches_info and trends_raw:
-        # Calculate topics from trends data for accuracy
+        # Calculate topics from trends data for accuracy (exclude outlier topic -1)
         trends_df_current = pd.DataFrame(trends_raw)
         
         # Find the most recent batch with topics > 0 (skip test batches)
         latest = None
         for batch in reversed(batches_info):
             batch_id = batch.get("batch_id")
-            topics_count = len(trends_df_current[trends_df_current["batch_id"] == batch_id]["topic_id"].unique())
+            # Filter out outlier topic -1 for accurate count
+            batch_trends = trends_df_current[
+                (trends_df_current["batch_id"] == batch_id) & 
+                (trends_df_current["topic_id"] != -1)
+            ]
+            topics_count = len(batch_trends["topic_id"].unique())
             if topics_count > 0:
                 latest = batch
                 latest["topics_actual"] = topics_count
@@ -203,7 +208,12 @@ with batch_col:
         if not latest:
             latest = batches_info[-1]
             batch_id = latest.get("batch_id")
-            latest["topics_actual"] = len(trends_df_current[trends_df_current["batch_id"] == batch_id]["topic_id"].unique())
+            # Filter out outlier topic -1
+            batch_trends = trends_df_current[
+                (trends_df_current["batch_id"] == batch_id) & 
+                (trends_df_current["topic_id"] != -1)
+            ]
+            latest["topics_actual"] = len(batch_trends["topic_id"].unique())
         
         st.caption(f"Most recently processed batch with topics.")
 

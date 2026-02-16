@@ -182,6 +182,8 @@ torch==2.9.1
 tornado==6.5.4
 tqdm==4.67.1
 transformers==4.57.3
+gensim==4.4.0
+nltk==3.8.1
 typer==0.20.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0

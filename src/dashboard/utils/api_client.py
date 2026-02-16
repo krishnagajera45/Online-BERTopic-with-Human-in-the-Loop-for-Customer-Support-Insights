@@ -119,3 +119,31 @@ class APIClient:
         response.raise_for_status()
         return response.json()
 
+    # ── LDA Metrics ───────────────────────────────────────────────
+    def get_lda_metrics(self) -> Dict[str, Any]:
+        """Get LDA model metrics."""
+        response = requests.get(f"{self.base_url}/api/v1/lda/")
+        response.raise_for_status()
+        return response.json()
+    
+    def get_model_comparison(self) -> Dict[str, Any]:
+        """Get BERTopic vs LDA comparison."""
+        response = requests.get(f"{self.base_url}/api/v1/lda/comparison")
+        response.raise_for_status()
+        return response.json()
+    
+    # ── BERTopic Metrics ──────────────────────────────────────────
+    def get_bertopic_metrics(self) -> Dict[str, Any]:
+        """Get BERTopic model evaluation metrics."""
+        response = requests.get(f"{self.base_url}/api/v1/bertopic/")
+        response.raise_for_status()
+        return response.json()
+    
+    # ── Internal helper ───────────────────────────────────────────
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Generic request method for flexibility."""
+        url = f"{self.base_url}{endpoint}"
+        response = requests.request(method, url, **kwargs)
+        response.raise_for_status()
+        return response.json()
+

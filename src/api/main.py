@@ -11,7 +11,7 @@ import time
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.endpoints import topics, trends, alerts, inference, hitl, pipeline, batch_stats
+from src.api.endpoints import topics, trends, alerts, inference, hitl, pipeline, batch_stats, lda_metrics, bertopic_metrics
 from src.utils import load_config, setup_logger
 
 logger = setup_logger(__name__, "logs/api.log")
@@ -64,6 +64,8 @@ app.include_router(inference.router, prefix="/api/v1/infer", tags=["Inference"])
 app.include_router(hitl.router, prefix="/api/v1/hitl", tags=["HITL"])
 app.include_router(pipeline.router, prefix="/api/v1/pipeline/status", tags=["Pipeline"])
 app.include_router(batch_stats.router, prefix="/api/v1/batch-stats", tags=["Batch Stats"])
+app.include_router(lda_metrics.router, prefix="/api/v1/lda", tags=["LDA Metrics"])
+app.include_router(bertopic_metrics.router, prefix="/api/v1/bertopic", tags=["BERTopic Metrics"])
 
 
 @app.get("/")

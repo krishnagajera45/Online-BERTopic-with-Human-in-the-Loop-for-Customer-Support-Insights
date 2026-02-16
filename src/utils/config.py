@@ -110,6 +110,16 @@ class PrefectConfig:
 
 
 @dataclass
+class LDAConfig:
+    """LDA model configuration for comparison."""
+    enabled: bool = True
+    num_topics: str = "auto"  # 'auto' or integer
+    passes: int = 10
+    iterations: int = 200
+    top_n_words: int = 10
+
+
+@dataclass
 class Config:
     """Main configuration object."""
     data: DataConfig
@@ -121,6 +131,7 @@ class Config:
     dashboard: DashboardConfig
     scheduler: SchedulerConfig
     prefect: PrefectConfig
+    lda: LDAConfig = None  # Optional LDA config
 
 
 def load_config(config_path: str = "config/config.yaml") -> Config:
@@ -149,7 +160,8 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
         api=APIConfig(**config_dict['api']),
         dashboard=DashboardConfig(**config_dict['dashboard']),
         scheduler=SchedulerConfig(**config_dict['scheduler']),
-        prefect=PrefectConfig(**config_dict.get('prefect', {}))
+        prefect=PrefectConfig(**config_dict.get('prefect', {})),
+        lda=LDAConfig(**config_dict.get('lda', {})) if 'lda' in config_dict else None
     )
 
 

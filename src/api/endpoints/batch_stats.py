@@ -49,14 +49,16 @@ async def get_batch_stats() -> Dict[str, Any]:
                 "batches": [],
             }
 
-        # Load topics metadata to get accurate topic counts per batch
+        # Load topics metadata to get accurate topic counts per batch (excluding outlier -1)
         topics_list = storage.load_topics_metadata()  # Returns list of topic dicts
         
-        # Count topics per batch from topics metadata
+        # Count topics per batch from topics metadata (exclude outlier topic -1)
         topic_counts_by_batch = {}
         for topic in topics_list:
+            topic_id = topic.get("topic_id")
             batch_id = topic.get("batch_id")
-            if batch_id:
+            # Exclude outlier topic -1
+            if batch_id and topic_id != -1:
                 topic_counts_by_batch[batch_id] = topic_counts_by_batch.get(batch_id, 0) + 1
 
         # Per-batch doc counts from assignments
@@ -112,11 +114,13 @@ async def get_batch_stats() -> Dict[str, Any]:
         # Sort batches chronologically
         batch_agg = batch_agg.sort_values("timestamp").reset_index(drop=True)
 
-        # Cumulative stats (use topics metadata for accurate total_topics count)
+        # Cumulative stats (use topics metadata for accurate total_topics count, excluding outlier -1)
         state = storage.load_processing_state()
+        # Count only non-outlier topics
+        total_topics_count = sum(1 for t in topics_list if t.get("topic_id") != -1)
         cumulative = {
             "total_docs": int(assignments.shape[0]),
-            "total_topics": len(topics_list),  # Total topics discovered across all batches
+            "total_topics": total_topics_count,  # Total topics discovered (excluding outlier -1)
             "total_batches": int(batch_agg.shape[0]),
             "last_run": state.get("last_run_timestamp"),
         }

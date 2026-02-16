@@ -9,8 +9,10 @@ import pandas as pd
 from src.etl.flows.data_ingestion import data_ingestion_flow
 from src.etl.flows.model_training import model_training_flow
 from src.etl.flows.drift_detection import drift_detection_flow
+from src.etl.flows.lda_comparison import lda_comparison_flow
 from src.utils import load_config, generate_batch_id, MLflowLogger, get_prefect_context
 from src.utils import StorageManager
+from src.dashboard.utils.api_client import APIClient
 
 
 @flow(name="complete-pipeline-flow", log_prints=True)
@@ -170,6 +172,121 @@ def complete_pipeline_flow(
         # Log model artifact
         mlflow_logger.log_model_artifact(config.storage.current_model_path)
         
+        # ========== STEP 2.4: BERTOPIC METRICS CALCULATION ==========
+        step2_4_start = time.time()
+        logger.info("Step 2.4: Calculating BERTopic evaluation metrics")
+        
+        try:
+            from src.etl.tasks.bertopic_metrics import (
+                calculate_bertopic_coherence_task,
+                calculate_bertopic_silhouette_task,
+                save_bertopic_metrics_task
+            )
+            
+            # Calculate coherence
+            coherence_metrics = calculate_bertopic_coherence_task(model, documents, topics)
+            
+            # Calculate silhouette - pass the model so the task can extract embeddings
+            try:
+                silhouette_score = calculate_bertopic_silhouette_task(model, documents, topics)
+            except Exception as e:
+                logger.warning(f"Could not calculate silhouette: {e}")
+                silhouette_score = 0.0
+            
+            # Get diversity from live stats
+            try:
+                api_client = APIClient()
+                live_stats = api_client.get_topics()
+                all_keywords = []
+                for t in live_stats:
+                    all_keywords.extend([w for w in t.get("top_words", [])])
+                unique_kw = len(set(all_keywords))
+                total_kw = len(all_keywords) if all_keywords else 1
+                bertopic_diversity = unique_kw / total_kw if total_kw else 0.0
+            except Exception:
+                bertopic_diversity = 0.0
+            
+            # Combine metrics
+            bertopic_metrics = {
+                'coherence_c_v': coherence_metrics.get('coherence_c_v', 0.0),
+                'silhouette_score': silhouette_score,
+                'num_topics': len(set(topics)) - (1 if -1 in topics else 0),
+                'diversity': bertopic_diversity,
+                'batch_id': batch_id,
+                'timestamp': datetime.now().isoformat(),
+                'training_time_seconds': step2_duration
+            }
+            
+            # Save metrics
+            save_bertopic_metrics_task(bertopic_metrics)
+            
+            # Log to MLflow
+            mlflow_logger.log_metrics({
+                'bertopic_coherence_c_v': bertopic_metrics['coherence_c_v'],
+                'bertopic_silhouette_score': bertopic_metrics['silhouette_score']
+            })
+            
+            logger.info(f"BERTopic metrics: Coherence={bertopic_metrics['coherence_c_v']:.4f}, Silhouette={bertopic_metrics['silhouette_score']:.4f}")
+            
+        except Exception as e:
+            logger.error(f"BERTopic metrics calculation failed: {e}", exc_info=True)
+            logger.warning("Pipeline will continue without BERTopic metrics")
+        
+        step2_4_duration = time.time() - step2_4_start
+        mlflow_logger.log_processing_time("bertopic_metrics", step2_4_duration)
+        
+        # ========== STEP 2.5: LDA COMPARISON (Optional) ==========
+        step2_5_start = time.time()
+        lda_metrics = None
+        
+        # Check if LDA comparison is enabled in config
+        lda_enabled = getattr(config, 'lda', None) and getattr(config.lda, 'enabled', False)
+        
+        if lda_enabled:
+            logger.info("Step 2.5: Running LDA comparison flow")
+            
+            try:
+                # Use the same number of topics as BERTopic discovered (excluding outlier topic -1)
+                bertopic_num_topics = len(set(topics)) - (1 if -1 in topics else 0)
+                
+                # Use configured number of topics or BERTopic's count
+                lda_num_topics = getattr(config.lda, 'num_topics', None)
+                if lda_num_topics is None or lda_num_topics == 'auto':
+                    lda_num_topics = max(bertopic_num_topics, 5)  # Minimum 5 topics
+                
+                logger.info(f"Training LDA with {lda_num_topics} topics (BERTopic: {bertopic_num_topics} excluding outliers)")
+                
+                lda_metrics = lda_comparison_flow(
+                    documents=documents,
+                    num_topics=lda_num_topics,
+                    batch_id=batch_id,
+                    window_start=start_date,
+                    window_end=end_date
+                )
+                
+                # Log LDA metrics to MLflow
+                if lda_metrics.get('status') == 'success':
+                    mlflow_logger.log_metrics({
+                        'lda_coherence_c_v': lda_metrics.get('coherence_c_v', 0.0),
+                        'lda_diversity': lda_metrics.get('diversity', 0.0),
+                        'lda_silhouette_score': lda_metrics.get('silhouette_score', 0.0),
+                        'lda_num_topics': lda_metrics.get('num_topics', 0),
+                        'lda_training_time_seconds': lda_metrics.get('training_time_seconds', 0.0)
+                    })
+                    logger.info("LDA comparison complete")
+                else:
+                    logger.warning(f"LDA comparison skipped or failed: {lda_metrics.get('reason', 'unknown')}")
+                
+            except Exception as e:
+                logger.error(f"LDA comparison failed: {e}", exc_info=True)
+                logger.warning("Pipeline will continue without LDA metrics")
+                lda_metrics = {'status': 'error', 'error_message': str(e)}
+            
+            step2_5_duration = time.time() - step2_5_start
+            mlflow_logger.log_processing_time("lda_comparison", step2_5_duration)
+        else:
+            logger.info("Step 2.5: LDA comparison disabled in config")
+        
         # ========== STEP 3: DRIFT DETECTION ==========
         step3_start = time.time()
         if Path(config.storage.previous_model_path).exists():
@@ -281,6 +398,7 @@ def complete_pipeline_flow(
             'documents_processed': len(documents),
             'num_topics': len(set(topics)),
             'drift_detected': drift_metrics is not None and len(drift_metrics.get('alerts', [])) > 0,
+            'lda_comparison': lda_metrics if lda_metrics else None,
             'mlflow_run_id': mlflow_run.info.run_id,
             'prefect_run_id': prefect_ctx.get('flow_run_id'),
             'duration_seconds': pipeline_duration
@@ -306,7 +424,7 @@ def complete_pipeline_flow(
         except Exception as mlflow_error:
             logger.warning(f"Could not log error to MLflow: {mlflow_error}")
         
-        # Update state with error
+        # Update state with error (don't update last_processed_timestamp on error)
         storage.save_processing_state({
             'status': 'error',
             'error_message': str(e),

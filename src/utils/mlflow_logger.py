@@ -371,6 +371,24 @@ class MLflowLogger:
         else:
             logger.warning(f"Model artifact not found: {model_path}")
     
+    def log_metrics(
+        self,
+        metrics: Dict[str, Any]
+    ):
+        """
+        Log multiple metrics at once.
+        
+        Args:
+            metrics: Dictionary of metric names to values
+        """
+        for key, value in metrics.items():
+            try:
+                mlflow.log_metric(key, float(value))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not log metric {key}={value}: {e}")
+        
+        logger.info(f"✓ Logged {len(metrics)} metrics")
+    
     def log_processing_time(
         self,
         stage: str,

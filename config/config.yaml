@@ -63,6 +63,13 @@ dashboard:
   port: 8501
   api_base_url: "http://localhost:8000"
 
+lda:
+  enabled: true  # Enable/disable LDA comparison
+  num_topics: auto  # 'auto' uses BERTopic's topic count, or specify a number
+  passes: 10  # Number of passes through corpus
+  iterations: 200  # Iterations per pass
+  top_n_words: 10  # Top words per topic for evaluation
+
 scheduler:
   batch_size: 5000
   window_minutes: 5
