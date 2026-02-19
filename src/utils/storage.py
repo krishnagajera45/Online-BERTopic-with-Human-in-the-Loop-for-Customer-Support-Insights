@@ -229,22 +229,38 @@ class StorageManager:
     
     def load_audit_log(self, limit: Optional[int] = None) -> pd.DataFrame:
         """Load HITL audit log."""
+        # Define expected columns for empty DataFrame
+        expected_columns = ['timestamp', 'action_type', 'old_topics', 'new_topics', 'user_note', 'archived_model_timestamp']
+        
         if not self.audit_path.exists():
-            logger.warning(f"Audit log file not found: {self.audit_path}")
-            return pd.DataFrame()
+            logger.info(f"Audit log file not found (no actions yet): {self.audit_path}")
+            return pd.DataFrame(columns=expected_columns)
         
         try:
             df = pd.read_csv(self.audit_path)
             
-            if limit:
+            # Validate DataFrame has content
+            if df.empty:
+                logger.info("Audit log file is empty")
+                return pd.DataFrame(columns=expected_columns)
+            
+            # Ensure all expected columns exist (fill missing ones with empty string)
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            if limit and limit > 0:
                 df = df.tail(limit)
             
             logger.info(f"Loaded {len(df)} audit log entries")
             return df
         
+        except pd.errors.EmptyDataError:
+            logger.warning(f"Audit log file is empty or corrupted: {self.audit_path}")
+            return pd.DataFrame(columns=expected_columns)
         except Exception as e:
             logger.error(f"Error loading audit log: {e}", exc_info=True)
-            return pd.DataFrame()
+            return pd.DataFrame(columns=expected_columns)
     
     # ========== Processing State ==========
     

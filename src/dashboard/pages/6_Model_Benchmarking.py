@@ -235,50 +235,84 @@ st.markdown("### 📝 Evaluation Methodology & Definitions")
 
 with st.expander("📐 Topic Coherence (C_v)", expanded=True):
     st.markdown("""
-    **Formula / Method:** Sliding window + NPMI + cosine similarity over top-K words per topic.
+    **Method:** Sliding window + Normalized Pointwise Mutual Information (NPMI) + cosine similarity over top-K words per topic.
+    
+    **Implementation:** Uses Gensim's `CoherenceModel` with C_v metric on the original documents and computed embeddings.
     
     **Range:** 0 → 1 (higher is better)
     
-    Measures how semantically similar the top words in a topic are. Higher coherence means more interpretable,
-    human-readable topics. BERTopic leverages transformer embeddings for richer semantics.
+    **Interpretation:** Measures how semantically related the top keywords in a topic are to each other.
+    Higher coherence indicates more interpretable, human-readable topics that cluster semantically related words.
+    
+    **Why it matters:** BERTopic leverages contextual transformer embeddings (Sentence-BERT) which capture richer
+    semantic relationships compared to bag-of-words approaches, typically resulting in higher coherence scores.
     """)
 
 with st.expander("🎯 Topic Diversity"):
     st.markdown("""
-    **Formula:** |unique words in top-K| / (K × N_topics)
+    **Formula:** |unique_words_across_all_topics| / (top_k_words_per_topic × num_topics)
     
     **Range:** 0 → 1 (higher is better)
     
-    Proportion of unique words across all topics. Higher diversity means less keyword overlap between topics —
-    each topic is more distinct.
+    **Interpretation:** Proportion of unique words across all topic representations. Higher diversity score
+    means less keyword overlap between topics — each topic is more distinct and specialized.
+    
+    **Why it matters:** Diversity prevents topics from being too similar or redundant. A model with high
+    coherence but low diversity might have many overlapping topics. The ideal model balances both metrics.
+    
+    **Implementation:** Computed by collecting top-N keywords from all topics (excluding -1) and calculating
+    the ratio of unique terms to total possible terms (N × num_topics).
     """)
 
 with st.expander("🧮 Silhouette Score"):
     st.markdown("""
-    **Formula:** (b − a) / max(a, b) per sample, averaged. Where *a* = mean intra-cluster distance,
-    *b* = mean nearest-cluster distance.
+    **Formula:** For each document: (b − a) / max(a, b), then averaged across all documents.
+    - **a** = mean intra-cluster distance (how far the document is from others in its topic)
+    - **b** = mean nearest-cluster distance (how far the document is from the nearest other topic)
     
     **Range:** −1 → 1 (higher is better)
+    - **> 0.5:** Strong, well-separated clusters
+    - **0.2 - 0.5:** Reasonable structure
+    - **< 0.2:** Weak or overlapping clusters
     
-    Measures cluster quality: how similar documents are to their own topic vs. other topics.
-    BERTopic's HDBSCAN typically produces tighter clusters.
+    **Interpretation:** Measures cluster quality in embedding space: how similar documents are to their
+    assigned topic vs. other topics. Higher scores indicate tighter, more cohesive topic clusters.
+    
+    **Why it matters:** BERTopic's HDBSCAN clustering on UMAP-reduced embeddings typically produces
+    tighter clusters compared to probabilistic approaches like LDA, often resulting in higher silhouette scores.
+    
+    **Note:** Computed on the embedding space (384-dim for Sentence-BERT or 5-dim UMAP), not raw text.
     """)
 
 with st.expander("⚙️ Experimental Setup"):
     st.markdown("""
-    | Parameter | BERTopic | LDA (Gensim) |
-    |-----------|----------|--------------|
-    | Dataset | Twitter Customer Support (TwCS) | Same |
-    | Preprocessing | Minimal (BERT handles context) | Tokenize + stopwords + lemmatize |
-    | Embedding | all-MiniLM-L6-v2 (384-dim) | BoW / TF-IDF |
-    | Dim Reduction | UMAP (5 components, cosine) | N/A |
-    | Clustering | HDBSCAN (auto min_cluster) | Variational Bayes |
-    | Topic Count | Auto-detected | Same as BERTopic (for fair comparison) |
-    | Representation | c-TF-IDF + Ollama labels | Top-N words per topic |
-    | Merging | merge_models (cumulative) | Cumulative corpus retrain |
+    | Parameter | BERTopic (Ours) | LDA (Baseline) |
+    |-----------|-----------------|----------------|
+    | **Dataset** | Twitter Customer Support (TwCS) inbound only | Same |
+    | **Preprocessing** | Minimal (URLs, mentions, emojis removed) | Full NLP (tokenize + stopwords + lemmatize) |
+    | **Embedding** | all-MiniLM-L6-v2 (384-dim, Sentence-BERT) | Bag-of-Words (BoW) / TF-IDF |
+    | **Dim Reduction** | UMAP (n_components=5, metric=cosine) | N/A (LDA operates on BoW) |
+    | **Clustering** | HDBSCAN (density-based, auto min_cluster_size) | Variational Bayes (Dirichlet prior) |
+    | **Topic Representation** | c-TF-IDF + Ollama (DeepSeek-R1:1.5b) for labels | Top-N weighted words per topic |
+    | **Topic Count** | Auto-detected via HDBSCAN | Fixed to match BERTopic for fair comparison |
+    | **Online Strategy** | merge_models() for cumulative learning | Full corpus retrain (cumulative) |
+    | **Outlier Handling** | Topic -1 excluded from all metrics | No explicit outlier concept |
+    | **Evaluation Scope** | Cumulative (all batches merged) | Cumulative (trained on full history) |
     
-    **Fair benchmarking:** Both models are evaluated on the same cumulative scope — BERTopic via merge_models,
-    LDA via training on the full cumulative corpus. Metrics are computed after each batch.
+    ### Fair Comparison Methodology
+    
+    **Temporal Alignment:** Both models are evaluated on the same cumulative corpus after each batch:
+    - **BERTopic:** Uses `merge_models()` to accumulate topics across batches
+    - **LDA:** Retrains on the full cumulative corpus up to current batch
+    
+    **Topic Count Alignment:** LDA is configured to use the same number of topics as BERTopic discovers
+    (excluding outlier topic -1) to ensure fair coherence and diversity comparisons.
+    
+    **Metrics Timing:** All metrics (coherence, diversity, silhouette) are computed after each batch
+    completes and models are merged/retrained. Timestamps represent actual training completion time.
+    
+    **Why This Matters:** This setup ensures we compare apples-to-apples — both models see the same
+    data, both use cumulative learning, and metrics reflect the same evaluation window.
     """)
 
 render_footer()

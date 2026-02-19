@@ -258,18 +258,24 @@ async def relabel_topic(request: RelabelRequest):
 
 @router.get("/audit")
 async def get_audit_log(limit: int = 50):
-    """Get HITL audit log."""
+    """Get HITL audit log (history of merges/relabels)."""
     try:
+        logger.info(f"Fetching audit log (limit={limit})")
         audit_df = storage.load_audit_log(limit=limit)
         
-        if len(audit_df) == 0:
+        if audit_df.empty or len(audit_df) == 0:
+            logger.info("No audit entries found")
             return []
         
-        return audit_df.to_dict('records')
+        # Convert to dict with proper handling of NaN values
+        records = audit_df.fillna('').to_dict('records')
+        logger.info(f"Returning {len(records)} audit entries")
+        return records
     
     except Exception as e:
         logger.error(f"Error getting audit log: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty list instead of 500 error for better UX
+        return []
 
 
 @router.get("/version-history")

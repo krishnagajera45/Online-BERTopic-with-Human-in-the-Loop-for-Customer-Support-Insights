@@ -38,7 +38,7 @@ api = st.session_state.api_client
 
 page_header(
     "Dashboard",
-    "Cumulative and per-batch statistics for the customer-support topic landscape — powered by BERTopic.",
+    "Cumulative and per-batch analytics for the customer-support topic landscape — powered by BERTopic. Track document processing, topic evolution, and batch-level trends across time.",
     "📊",
 )
 
@@ -165,9 +165,10 @@ with overall_col:
     
     # ── Topic evolution sparkline — topics per batch ───────
     if batches_info and trends_raw:
-        # Calculate topics per batch from trends
+        # Calculate topics per batch from trends (exclude outlier topic -1)
         tdf = pd.DataFrame(trends_raw)
-        topic_counts = tdf.groupby("batch_id")["topic_id"].nunique().reset_index()
+        tdf_filtered = tdf[tdf["topic_id"] != -1]
+        topic_counts = tdf_filtered.groupby("batch_id")["topic_id"].nunique().reset_index()
         topic_counts.columns = ["batch_id", "topics"]
         
         # Merge with batches to maintain order
@@ -419,8 +420,11 @@ if trends_raw:
     ws = batch_meta.get("window_start") or batch_meta.get("timestamp") or "—"
     we = batch_meta.get("window_end") or "—"
     docs_in_batch = batch_meta.get("docs", 0)
-    # Get actual topic count from trends data for this batch
-    topics_in_batch = len(trends_df[trends_df["batch_id"] == sel_batch]["topic_id"].unique())
+    # Get actual topic count from trends data for this batch (exclude outlier topic -1)
+    topics_in_batch = len(trends_df[
+        (trends_df["batch_id"] == sel_batch) & 
+        (trends_df["topic_id"] != -1)
+    ]["topic_id"].unique())
 
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, #1A1D23, #22262E); border: 1px solid #6C5CE7; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1.5rem;">
@@ -452,8 +456,8 @@ if trends_raw:
     st.markdown("### 🌳 Topic Hierarchy — Batch Overview")
     st.caption("Proportional topic distribution for the selected batch — larger blocks = more documents.")
     
-    # Filter topics present in current batch
-    batch_topic_ids = set(batch_data["topic_id"].unique())
+    # Filter topics present in current batch (exclude outlier topic -1)
+    batch_topic_ids = set(batch_data[batch_data["topic_id"] != -1]["topic_id"].unique())
     batch_topics = [t for t in topics if t["topic_id"] in batch_topic_ids and t.get("count", 0) > 0]
     
     if batch_topics:
@@ -558,9 +562,10 @@ if trends_raw:
 
     trends_df["label"] = trends_df["topic_id"].map(topic_label_map).fillna(trends_df["topic_id"].astype(str))
 
-    # Let user pick which topics to show (top N by total count as default)
+    # Let user pick which topics to show (top N by total count as default, exclude outlier -1)
     top_tids = (
-        trends_df.groupby("topic_id")["count"].sum()
+        trends_df[trends_df["topic_id"] != -1]
+        .groupby("topic_id")["count"].sum()
         .sort_values(ascending=False)
         .head(10)
         .index.tolist()

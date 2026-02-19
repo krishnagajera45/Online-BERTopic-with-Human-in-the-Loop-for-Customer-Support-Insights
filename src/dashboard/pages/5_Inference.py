@@ -149,21 +149,36 @@ with result_col:
     else:
         st.markdown("""
         <div class="info-card">
-            <h3>How it works</h3>
+            <h3>🔬 How Topic Inference Works</h3>
             <p>
-            <strong>1.</strong> Text is cleaned (URLs, mentions, emojis removed).<br/>
-            <strong>2.</strong> Sentence-BERT encodes the text into a 384-dim vector.<br/>
-            <strong>3.</strong> The vector is compared to existing topic representations.<br/>
-            <strong>4.</strong> A confidence score measures alignment with the predicted topic.
+            <strong>1. Text Preprocessing:</strong> Input text is cleaned (URLs, @mentions, emojis removed) using the same pipeline as training data.<br/><br/>
+            <strong>2. Semantic Embedding:</strong> Sentence-BERT (all-MiniLM-L6-v2) encodes the cleaned text into a 384-dimensional dense vector that captures semantic meaning.<br/><br/>
+            <strong>3. Topic Assignment:</strong> The embedding is compared against existing topic centroids using cosine similarity. The closest matching topic is selected.<br/><br/>
+            <strong>4. Confidence Calculation:</strong> Confidence score reflects:<br/>
+            &nbsp;&nbsp;• Similarity to the assigned topic's centroid (higher = more confident)<br/>
+            &nbsp;&nbsp;• Distance from other topics (larger margin = more confident)<br/>
+            &nbsp;&nbsp;• Consistency with training data distribution
             </p>
         </div>
         <div class="info-card">
-            <h3>Use Cases</h3>
+            <h3>📊 Confidence Score Guide</h3>
             <p>
-            • Auto-categorize incoming support tickets<br/>
-            • Route messages to the right team<br/>
-            • Identify trending topics in real time<br/>
-            • Monitor topic distribution changes
+            <strong style="color:#00B894;">High (>70%):</strong> Strong match. Text aligns well with topic characteristics — reliable categorization.<br/><br/>
+            <strong style="color:#FDCB6E;">Medium (40-70%):</strong> Moderate match. Text may contain elements of multiple topics or be at topic boundaries.<br/><br/>
+            <strong style="color:#E17055;">Low (<40%):</strong> Weak match. Text may be:<br/>
+            &nbsp;&nbsp;• Novel content not seen in training<br/>
+            &nbsp;&nbsp;• Ambiguous or multi-topic message<br/>
+            &nbsp;&nbsp;• Outlier that doesn't fit existing topics well
+            </p>
+        </div>
+        <div class="info-card">
+            <h3>💼 Use Cases & Applications</h3>
+            <p>
+            • <strong>Ticket Routing:</strong> Auto-categorize incoming support tickets for proper team assignment<br/>
+            • <strong>Real-Time Monitoring:</strong> Track trending topics and emerging issues as they happen<br/>
+            • <strong>Quality Control:</strong> Flag low-confidence predictions for human review<br/>
+            • <strong>Topic Distribution:</strong> Monitor how customer concerns shift over time<br/>
+            • <strong>Anomaly Detection:</strong> Identify unusual patterns via repeated low-confidence scores
             </p>
         </div>
         """, unsafe_allow_html=True)

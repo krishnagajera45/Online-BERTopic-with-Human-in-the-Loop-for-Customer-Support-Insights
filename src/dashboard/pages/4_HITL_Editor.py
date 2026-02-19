@@ -52,6 +52,60 @@ with tab_merge:
     st.markdown("### Merge Similar Topics")
     st.caption("Select 2+ topics to combine into one. The first selected topic's ID is kept.")
 
+    # ── Similar Topics Finder ─────────────────────────────────────────────────
+    st.markdown("#### 🔍 Similar Topics Finder")
+    st.caption("Jaccard similarity between all topic pairs — identifies merge candidates automatically by comparing keyword overlap.")
+    
+    # Calculate all pairwise similarities
+    similarity_pairs = []
+    for i, t1 in enumerate(topics):
+        for t2 in topics[i+1:]:
+            kw1 = set(t1.get("top_words", []))
+            kw2 = set(t2.get("top_words", []))
+            jaccard = len(kw1 & kw2) / len(kw1 | kw2) if (kw1 | kw2) else 0
+            if jaccard > 0:  # Only show pairs with some similarity
+                similarity_pairs.append({
+                    "Topic 1": f"T{t1['topic_id']}: {t1['custom_label']}",
+                    "Topic 2": f"T{t2['topic_id']}: {t2['custom_label']}",
+                    "Topic 1 ID": t1['topic_id'],
+                    "Topic 2 ID": t2['topic_id'],
+                    "Similarity": jaccard,
+                    "Common Keywords": ", ".join(sorted(kw1 & kw2)[:5]),
+                    "T1 Docs": t1["count"],
+                    "T2 Docs": t2["count"],
+                })
+    
+    if similarity_pairs:
+        sim_df = pd.DataFrame(similarity_pairs).sort_values("Similarity", ascending=False)
+        
+        # Filter controls
+        fc1, fc2 = st.columns([1, 1])
+        with fc1:
+            min_sim = st.slider("Minimum similarity threshold:", 0.0, 1.0, 0.2, 0.05)
+        with fc2:
+            top_n = st.slider("Show top N pairs:", 5, 50, 20, 5)
+        
+        filtered_sim = sim_df[sim_df["Similarity"] >= min_sim].head(top_n)
+        
+        if not filtered_sim.empty:
+            # Display table without internal IDs
+            display_cols = ["Topic 1", "Topic 2", "Similarity", "Common Keywords", "T1 Docs", "T2 Docs"]
+            st.dataframe(
+                filtered_sim[display_cols].style.background_gradient(
+                    subset=["Similarity"], cmap="YlOrRd", vmin=0, vmax=1
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption(f"💡 **Tip:** Higher similarity = better merge candidates. Click on pairs above to identify topics to merge below.")
+        else:
+            st.info(f"No topic pairs found with similarity ≥ {min_sim:.2f}")
+    else:
+        st.info("Not enough topics to compare.")
+    
+    st.divider()
+
+    # ── Manual Topic Selection ────────────────────────────────────────────────
     merge_col1, merge_col2 = st.columns([2, 1])
 
     with merge_col1:
@@ -201,9 +255,41 @@ with tab_impact:
     st.markdown("### Topic Landscape — Current State")
     st.caption("See the current topic distribution. After merges / relabels, refresh to see the impact.")
 
+    # Prepare data with proper labels for display and hover
+    tree_data = []
+    for _, topic in topics_df.iterrows():
+        tree_data.append({
+            'display_label': f"T{topic['topic_id']}: {topic['custom_label']}",
+            'topic_id': topic['topic_id'],
+            'label': topic['custom_label'],
+            'count': topic['count'],
+            'keywords': ', '.join(topic.get('top_words', [])[:5]) if 'top_words' in topic else ''
+        })
+    
+    tree_df = pd.DataFrame(tree_data)
+    
     fig_tree = px.treemap(
-        topics_df, path=["custom_label"], values="count",
-        color="count", color_continuous_scale="Viridis",
+        tree_df, 
+        path=["display_label"], 
+        values="count",
+        color="count", 
+        color_continuous_scale="Viridis",
+        hover_data={
+            'display_label': False,  # Hide from hover (already in label)
+            'topic_id': True,
+            'label': True, 
+            'count': ':,',  # Format with commas
+            'keywords': True
+        },
+        custom_data=['topic_id', 'label', 'keywords']
+    )
+    fig_tree.update_traces(
+        hovertemplate='<b>%{label}</b><br>' +
+                      'Topic ID: %{customdata[0]}<br>' +
+                      'Label: %{customdata[1]}<br>' +
+                      'Documents: %{value:,}<br>' +
+                      'Keywords: %{customdata[2]}<br>' +
+                      '<extra></extra>'
     )
     fig_tree.update_layout(
         template="plotly_dark",
@@ -214,9 +300,44 @@ with tab_impact:
 
     # Sunburst
     st.markdown("### Topic Sunburst")
+    
+    # Prepare sunburst data with proper labels
+    sun_data = []
+    for _, topic in topics_df.iterrows():
+        sun_data.append({
+            'batch': f"Batch {topic['batch_id']}",
+            'topic_label': f"T{topic['topic_id']}: {topic['custom_label']}",
+            'topic_id': topic['topic_id'],
+            'custom_label': topic['custom_label'],
+            'count': topic['count'],
+            'keywords': ', '.join(topic.get('top_words', [])[:5]) if 'top_words' in topic else ''
+        })
+    
+    sun_df = pd.DataFrame(sun_data)
+    
     fig_sun = px.sunburst(
-        topics_df, path=["batch_id", "custom_label"], values="count",
-        color="count", color_continuous_scale="Tealgrn",
+        sun_df, 
+        path=["batch", "topic_label"], 
+        values="count",
+        color="count", 
+        color_continuous_scale="Tealgrn",
+        hover_data={
+            'batch': False,
+            'topic_label': False,
+            'topic_id': True,
+            'custom_label': True,
+            'count': ':,',
+            'keywords': True
+        },
+        custom_data=['topic_id', 'custom_label', 'keywords']
+    )
+    fig_sun.update_traces(
+        hovertemplate='<b>%{label}</b><br>' +
+                      'Topic ID: %{customdata[0]}<br>' +
+                      'Label: %{customdata[1]}<br>' +
+                      'Documents: %{value:,}<br>' +
+                      'Keywords: %{customdata[2]}<br>' +
+                      '<extra></extra>'
     )
     fig_sun.update_layout(
         template="plotly_dark",
@@ -228,19 +349,46 @@ with tab_impact:
 # ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 with tab_audit:
     st.markdown("### HITL Audit Log")
-    st.caption("Complete history of all human interventions on the topic model.")
+    st.caption("Complete history of all human interventions on the topic model — merges, relabels, and model updates.")
 
     try:
         audit = api.get_audit_log(limit=100)
-        if not audit:
-            st.info("No audit entries yet — perform a merge or relabel to get started.")
+        if not audit or len(audit) == 0:
+            st.info("""
+            📋 **No audit entries yet**
+            
+            The audit log will track all HITL actions including:
+            - 🔗 Topic merges (combining similar topics)
+            - 🏷️ Topic relabels (custom human-readable names)
+            - 📦 Archived model versions (for rollback)
+            
+            **Get started:** Switch to the "Merge Topics" or "Relabel Topic" tabs to make your first edit!
+            """)
         else:
             audit_df = pd.DataFrame(audit)
-            st.dataframe(audit_df, width='stretch', hide_index=True)
+            
+            # Show summary stats
+            a1, a2, a3 = st.columns(3)
+            with a1:
+                merge_count = len(audit_df[audit_df["action_type"] == "merge"]) if "action_type" in audit_df.columns else 0
+                st.metric("🔗 Total Merges", merge_count)
+            with a2:
+                relabel_count = len(audit_df[audit_df["action_type"] == "relabel"]) if "action_type" in audit_df.columns else 0
+                st.metric("🏷️ Total Relabels", relabel_count)
+            with a3:
+                st.metric("📋 Total Actions", len(audit_df))
+            
+            st.divider()
+            
+            # Show table
+            st.markdown("#### 📊 Audit History Table")
+            st.dataframe(audit_df, use_container_width=True, hide_index=True)
 
             # Timeline visualization
             if "timestamp" in audit_df.columns and "action_type" in audit_df.columns:
-                st.markdown("### Action Timeline")
+                st.divider()
+                st.markdown("### 📅 Action Timeline")
+                st.caption("Chronological view of all model interventions.")
                 for _, row in audit_df.iterrows():
                     icon = "🔗" if row.get("action_type") == "merge" else "🏷️"
                     st.markdown(f"""
@@ -251,7 +399,16 @@ with tab_audit:
                     </div>
                     """, unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Could not load audit log: {e}")
+        st.warning(f"""
+        ⚠️ **Could not load audit log**
+        
+        Error: {str(e)}
+        
+        **Troubleshooting:**
+        - Ensure the FastAPI backend is running (`python -m src.api.main`)
+        - Check that the `outputs/audit/` directory exists
+        - Try performing a merge or relabel action to initialize the audit log
+        """)
 
 # ── VERSION HISTORY ───────────────────────────────────────────────────────────
 with tab_versions:

@@ -19,12 +19,13 @@ page_header(
 )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_intro, tab_arch, tab_data, tab_method, tab_eval, tab_team = st.tabs([
+tab_intro, tab_arch, tab_data, tab_method, tab_eval, tab_compare, tab_team = st.tabs([
     "🎯 Introduction",
     "🏗️ Architecture",
     "📊 Data",
     "🔬 Methodology",
     "📈 Evaluation",
+    "⚖️ LDA vs BERTopic",
     "👥 About",
 ])
 
@@ -143,30 +144,36 @@ with tab_arch:
         st.markdown("""
         <div class="info-card">
             <h3>📥 Data Ingestion Flow</h3>
-            <p>Reads raw TwCS CSV, filters by time-window, cleans text (URL/mention
-            removal, emoji stripping, phone masking), and saves processed parquet.</p>
+            <p>Reads raw TwCS CSV, filters by configurable time-window batches (e.g., hourly, daily),
+            cleans text (URL/mention removal, emoji stripping, phone/version masking), normalizes
+            unicode, and saves processed data as Parquet. Filters inbound (customer) tweets only.</p>
         </div>
         <div class="info-card">
             <h3>🤖 Model Training Flow</h3>
-            <p><strong>Seed mode:</strong> fit_transform on first batch.<br/>
-            <strong>Online mode:</strong> train a fresh model on the new batch, then
-            <code>merge_models()</code> with the base model so that HITL edits persist.</p>
+            <p><strong>Seed mode:</strong> fit_transform on first batch to establish base model.<br/>
+            <strong>Online/incremental mode:</strong> train fresh model on new batch data only, then
+            merge with cumulative base model via <code>merge_models()</code>. This preserves all
+            historical topics and HITL edits while incorporating new discoveries.</p>
         </div>
         """, unsafe_allow_html=True)
     with a2:
         st.markdown("""
         <div class="info-card">
             <h3>📉 Drift Detection Flow</h3>
-            <p>Compares current vs. previous model using:<br/>
-            • <strong>Prevalence change</strong> (TVD)<br/>
+            <p>Compares current vs. previous model after each batch using:<br/>
+            • <strong>Prevalence change</strong> (TVD of topic distributions)<br/>
             • <strong>Centroid shift</strong> (cosine distance in embedding space)<br/>
-            • <strong>JS divergence</strong> on keyword distributions<br/>
-            • <strong>New / disappeared topics</strong></p>
+            • <strong>JS divergence</strong> (Jensen-Shannon on keyword distributions)<br/>
+            • <strong>New / disappeared topics</strong> (excluding outlier topic -1)<br/>
+            Alerts are stored in CSV with severity levels and JSON metrics for analysis.</p>
         </div>
         <div class="info-card">
             <h3>🧑‍🔬 HITL Module</h3>
-            <p>Merge and relabel topics directly in the BERTopic model.
-            Every action is versioned — archived model + audit log entry.</p>
+            <p>Experts merge similar topics or relabel them directly in BERTopic model.
+            Every action triggers model re-save and creates:
+            • Archived version (timestamped .pkl)<br/>
+            • Audit log entry (CSV with old/new topics, user note, timestamp)<br/>
+            Supports full version history and rollback capability.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -221,12 +228,17 @@ with tab_data:
 
     st.markdown("### Preprocessing Pipeline")
     st.markdown("""
-    1. **Filter** inbound tweets only (customer messages)
-    2. **Sort** by `created_at` for chronological batching
-    3. **Clean text**: remove URLs, @mentions, emojis; mask phone numbers and version strings;
-       normalize unicode and repeated punctuation
-    4. **Drop** empty / near-empty documents
-    5. **Save** as partitioned Parquet for fast read
+    1. **Filter** inbound tweets only (customer messages where `inbound = True`)
+    2. **Sort** by `created_at` timestamp for chronological time-window batching
+    3. **Clean text** using comprehensive pipeline:
+       - Remove URLs, @mentions, hashtag symbols
+       - Strip emojis and special characters
+       - Mask phone numbers (XXX-XXX-XXXX) and version strings (v1.2.3)
+       - Normalize unicode characters (NFD decomposition)
+       - Remove repeated punctuation and extra whitespace
+    4. **Drop** empty or near-empty documents (< 3 characters after cleaning)
+    5. **Save** as partitioned Parquet for fast I/O in batch processing
+    6. **State tracking** via `processing_state.json` for resumable processing
     """)
 
 # ── METHODOLOGY ───────────────────────────────────────────────────────────────
@@ -249,27 +261,35 @@ with tab_method:
     st.markdown("""
     Rather than re-processing the entire corpus each time:
 
-    1. **New batch arrives** → train a *fresh* BERTopic model on it
-    2. **Merge** the new model with the existing *base* model using
-       `BERTopic.merge_models()` with configurable `min_similarity`
-    3. The base model **accumulates** all historical topics *and* any
-       HITL edits (merges / relabels)
-    4. Previous model is archived for drift comparison
+    1. **New batch arrives** → train a *fresh* BERTopic model on new data only
+    2. **Merge** the new batch model with the existing *cumulative* base model using
+       `BERTopic.merge_models()` with `min_similarity` threshold
+    3. The merged model **accumulates**:
+       - All historical topics from previous batches
+       - New topics discovered in the current batch
+       - All HITL edits (topic merges and custom labels)
+    4. Previous model is archived with timestamp for:
+       - Drift comparison and alerting
+       - Version history and rollback capability
+    5. Topic -1 (outliers) are consistently excluded from metrics and counts
+
+    This approach preserves human expertise while enabling continuous learning.
     """)
 
     st.markdown("### Drift Detection Metrics")
     st.markdown("""
     After each batch we compare **current** vs **previous** model:
 
-    | Metric | Formula / Idea | Threshold |
-    |--------|---------------|-----------|
-    | **Prevalence Change** | Total Variation Distance between topic distributions | 0.15 |
-    | **Centroid Shift** | 1 − cosine_similarity(centroid_curr, centroid_prev) | 0.25 |
-    | **JS Divergence** | Jensen-Shannon divergence on keyword weight distributions | 0.30 |
-    | **New Topics** | Topics in current but not in previous | >5 triggers alert |
-    | **Disappeared Topics** | Topics in previous but not in current | >3 triggers alert |
+    | Metric | Formula / Idea | Threshold (Alert Trigger) |
+    |--------|---------------|---------------------------|
+    | **Prevalence Change** | Total Variation Distance between topic distributions | 0.25 (High: >0.30, Med: >0.15, Low: >0.05) |
+    | **Centroid Shift** | 1 − cosine_similarity(centroid_curr, centroid_prev) | 0.55 (High: >0.40, Med: >0.25, Low: >0.10) |
+    | **JS Divergence** | Jensen-Shannon divergence on keyword weight distributions | 0.40 (High: >0.50, Med: >0.30, Low: >0.10) |
+    | **New Topics** | Topics in current but not in previous (excluding outlier -1) | >10 new topics |
+    | **Disappeared Topics** | Topics in previous but not in current | >6 disappeared topics |
 
-    Alerts are generated at **high / medium / low** severity levels.
+    Alerts are generated at **high / medium / low** severity levels based on configurable thresholds.
+    All thresholds are defined in `config/drift_thresholds.yaml` and can be tuned based on your data.
     """)
 
     st.markdown("### Human-in-the-Loop Workflow")
@@ -391,6 +411,235 @@ with tab_team:
 
     🔗 [github.com/krishnagajera45/Online-BERTopic-with-Human-in-the-Loop-for-Customer-Support-Insights](
     https://github.com/krishnagajera45/Online-BERTopic-with-Human-in-the-Loop-for-Customer-Support-Insights)
+    """)
+
+# ── LDA vs BERTopic ──────────────────────────────────────────────────────────
+with tab_compare:
+    st.markdown("## ⚖️ LDA vs BERTopic — Implementation Comparison")
+    st.caption("Based on the exact code in `src/etl/tasks/lda_tasks.py` and `src/etl/tasks/model_tasks.py`.")
+
+    st.divider()
+
+    # ── Step 1: Preprocessing ─────────────────────────────────────────────────
+    st.markdown("### Step 1 — Text Preprocessing")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #636E72;">
+            <h3>🗃️ LDA (Gensim)</h3>
+            <p>
+            <strong>Library:</strong> <code>gensim.utils.simple_preprocess</code>, NLTK<br/><br/>
+            <strong>Pipeline (preprocess_documents_for_lda_task):</strong><br/>
+            1. <code>simple_preprocess(doc, deacc=True, min_len=3)</code> — tokenize + remove accents<br/>
+            2. Remove English stopwords via <code>stopwords.words('english')</code><br/>
+            3. Lemmatize every token: <code>WordNetLemmatizer().lemmatize(token)</code><br/>
+            4. Discard tokens shorter than 3 characters after lemmatization<br/>
+            5. Build Gensim <code>Dictionary</code> + filter extremes:<br/>
+            &nbsp;&nbsp;&bull; <code>no_below=5</code> (min 5 docs)<br/>
+            &nbsp;&nbsp;&bull; <code>no_above=0.5</code> (max 50% of corpus)<br/>
+            &nbsp;&nbsp;&bull; <code>keep_n=10000</code> (vocabulary cap)<br/>
+            6. Convert to Bag-of-Words via <code>doc2bow</code><br/><br/>
+            <strong>Why heavy preprocessing?</strong> BoW only captures word counts — common words like "the", "is" would dominate without aggressive filtering.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with p2:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+            <h3>🤖 BERTopic (Sentence-BERT)</h3>
+            <p>
+            <strong>Library:</strong> <code>sentence_transformers</code><br/><br/>
+            <strong>Pipeline (initialize_bertopic_model_task):</strong><br/>
+            1. Basic text cleaning only — remove URLs, @mentions, emojis<br/>
+            2. <code>SentenceTransformer('all-MiniLM-L6-v2')</code> encodes the full sentence<br/>
+            3. No tokenization, no stopword removal, no lemmatization needed<br/>
+            4. Full sentence passed to transformer as-is<br/><br/>
+            <strong>Why minimal preprocessing?</strong> BERT is pre-trained on billions of sentences — it inherently understands grammar, context, and semantics. Stopwords like "not" carry real meaning (e.g., "not happy" ≠ "happy").
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Step 2: Document Representation ───────────────────────────────────────
+    st.markdown("### Step 2 — Document Representation")
+    r1, r2 = st.columns(2)
+    with r1:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #636E72;">
+            <h3>🗃️ LDA — Bag-of-Words</h3>
+            <p>
+            <strong>Output:</strong> Sparse integer vector (~10,000 dims)<br/><br/>
+            <strong>Example tweet:</strong> <em>"App keeps crashing!"</em><br/>
+            After preprocessing: <code>['app', 'keep', 'crash']</code><br/>
+            BoW: <code>{app: 1, keep: 1, crash: 1, ...rest: 0}</code><br/><br/>
+            <strong>Limitations:</strong><br/>
+            &bull; Word order lost — "not happy" = "happy not"<br/>
+            &bull; No semantics — "crash" ≠ "freeze" ≠ "stop working"<br/>
+            &bull; Very sparse for short tweets (mostly zeros)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with r2:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+            <h3>🤖 BERTopic — 384-dim Dense Embeddings</h3>
+            <p>
+            <strong>Output:</strong> Dense float vector of 384 dimensions<br/>
+            <strong>Model:</strong> <code>all-MiniLM-L6-v2</code>, batch_size=32<br/><br/>
+            <strong>Example tweet:</strong> <em>"App keeps crashing!"</em><br/>
+            Embedding: <code>[0.23, -0.45, 0.12, ..., 0.89]</code> (384 values)<br/><br/>
+            <strong>Advantages:</strong><br/>
+            &bull; Semantic similarity: "crash" ≈ "freeze" ≈ "stop working"<br/>
+            &bull; Context-aware: "not happy" ≠ "happy"<br/>
+            &bull; Robust on short text — rich signal even from 3 words<br/>
+            &bull; Semantically similar sentences map to nearby vector space points
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Step 3: Topic Discovery ────────────────────────────────────────────────
+    st.markdown("### Step 3 — Topic Discovery")
+    t1, t2 = st.columns(2)
+    with t1:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #636E72;">
+            <h3>🗃️ LDA — Dirichlet + Variational Bayes</h3>
+            <p>
+            <strong>Exact config (from lda_tasks.py):</strong><br/>
+            <code>LdaModel(corpus, id2word=dictionary,<br/>
+            &nbsp;num_topics=N, alpha='auto', eta='auto',<br/>
+            &nbsp;passes=10, iterations=200,<br/>
+            &nbsp;update_every=1, chunksize=100,<br/>
+            &nbsp;per_word_topics=True)</code><br/><br/>
+            <strong>How it works:</strong><br/>
+            &bull; Assumes: document = mixture of K topics<br/>
+            &bull; Assumes: topic = distribution over vocabulary<br/>
+            &bull; <code>alpha='auto'</code>: learns document-topic concentration<br/>
+            &bull; <code>eta='auto'</code>: learns topic-word concentration<br/>
+            &bull; <strong>K must be fixed upfront</strong> (set equal to BERTopic's count for fair comparison)<br/>
+            &bull; Each doc gets a <em>soft</em> probability vector over all topics
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with t2:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+            <h3>🤖 BERTopic — UMAP → HDBSCAN</h3>
+            <p>
+            <strong>Stage A — UMAP (model_config.yaml):</strong><br/>
+            <code>UMAP(n_neighbors=15, n_components=5,<br/>
+            &nbsp;min_dist=0.0, metric='cosine',<br/>
+            &nbsp;random_state=42)</code><br/>
+            Reduces 384-dim → 5-dim preserving local neighbourhood structure<br/><br/>
+            <strong>Stage B — HDBSCAN:</strong><br/>
+            <code>HDBSCAN(min_cluster_size=15, min_samples=5,<br/>
+            &nbsp;metric='euclidean',<br/>
+            &nbsp;cluster_selection_method='eom',<br/>
+            &nbsp;prediction_data=True)</code><br/><br/>
+            &bull; Density-based: finds clusters of any shape<br/>
+            &bull; <strong>K auto-detected</strong> from data density<br/>
+            &bull; Outliers assigned to Topic -1 (excluded from all metrics)<br/>
+            &bull; <em>Hard</em> assignment (1 topic per document)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Step 4: Topic Representation ──────────────────────────────────────────
+    st.markdown("### Step 4 — Topic Representation & Labels")
+    rp1, rp2 = st.columns(2)
+    with rp1:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #636E72;">
+            <h3>🗃️ LDA — Top-N Weighted Words</h3>
+            <p>
+            Each topic is described by the highest-probability words from the learned Dirichlet distribution.<br/><br/>
+            <strong>Example output:</strong><br/>
+            Topic 3: <code>['flight', 'cancel', 'refund', 'book', 'ticket']</code><br/><br/>
+            <strong>Limitation:</strong> Labels must be inferred manually — the model provides only words, not a human-readable title. No bigrams.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with rp2:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+            <h3>🤖 BERTopic — c-TF-IDF + Ollama (DeepSeek-R1:1.5b)</h3>
+            <p>
+            <strong>CountVectorizer (model_config.yaml):</strong><br/>
+            <code>stop_words='english', min_df=5, max_df=0.95,<br/>
+            &nbsp;ngram_range=(1, 2)</code> — includes bigrams!<br/><br/>
+            <strong>ClassTfidfTransformer:</strong><br/>
+            <code>bm25_weighting=False, reduce_frequent_words=False</code><br/>
+            Scores words by how distinctive they are in each cluster vs all others.<br/><br/>
+            <strong>LLM Labels (Ollama):</strong> DeepSeek-R1:1.5b reads the top keywords and generates a concise human-readable topic name automatically.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Step 5: Online / Incremental Learning ─────────────────────────────────
+    st.markdown("### Step 5 — Online / Incremental Learning")
+    ol1, ol2 = st.columns(2)
+    with ol1:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #636E72;">
+            <h3>🗃️ LDA — Full Corpus Retrain Each Batch</h3>
+            <p>
+            LDA has no native online learning for the full model structure.<br/><br/>
+            <strong>Strategy used in this project:</strong><br/>
+            After each new batch, retrain LDA on the <em>entire</em> cumulative corpus from scratch:<br/>
+            <code>LdaModel(full_cumulative_corpus,<br/>
+            &nbsp;num_topics=N, passes=10, ...)</code><br/><br/>
+            <strong>Drawback:</strong> Training time grows with each batch. All historical documents are reprocessed every run.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    with ol2:
+        st.markdown("""
+        <div class="info-card" style="border-left: 4px solid #6C5CE7;">
+            <h3>🤖 BERTopic — merge_models()</h3>
+            <p>
+            <strong>Strategy used in this project (model_tasks.py):</strong><br/>
+            1. Train a fresh BERTopic on the new batch only<br/>
+            2. Merge with existing cumulative model:<br/>
+            <code>base_model.merge_models([new_batch_model],<br/>
+            &nbsp;min_similarity=...)</code><br/>
+            3. Archive previous model version with timestamp<br/><br/>
+            <strong>What is preserved after merge:</strong><br/>
+            &bull; All historical topics from prior batches<br/>
+            &bull; HITL edits (merged topics, custom labels)<br/>
+            &bull; New topics discovered in the current batch<br/><br/>
+            <strong>Advantage:</strong> Only new data is processed per run.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Quick Comparison Table ─────────────────────────────────────────────────
+    st.markdown("### 📊 Side-by-Side Parameter Reference")
+    st.markdown("""
+| Parameter | **LDA (Gensim)** | **BERTopic (Our Implementation)** |
+|-----------|------------------|-----------------------------------|
+| **Library** | `gensim.models.LdaModel` | `bertopic.BERTopic` |
+| **Embedding** | Bag-of-Words (~10k dims, sparse) | `all-MiniLM-L6-v2` (384 dims, dense) |
+| **Preprocessing** | Tokenize → stopwords → lemmatize → BoW | URL/mention/emoji removal only |
+| **Vocabulary filter** | no_below=5, no_above=0.5, keep_n=10000 | min_df=5, max_df=0.95 (CountVectorizer) |
+| **Dimensionality reduction** | None | UMAP: n_neighbors=15, n_components=5, metric=cosine |
+| **Clustering** | Dirichlet (Variational Bayes) | HDBSCAN: min_cluster_size=15, min_samples=5 |
+| **Ngrams** | Unigrams only | Unigrams + bigrams (1, 2) |
+| **Topic count** | Fixed (set = BERTopic's auto-detected count) | Auto-detected by HDBSCAN |
+| **Assignment type** | Soft (probability per topic) | Hard (1 topic per document) |
+| **Outlier handling** | None | Topic -1 excluded from all metrics |
+| **Topic labels** | Top-N weighted words only | c-TF-IDF keywords + Ollama LLM labels |
+| **Training passes** | passes=10, iterations=200, chunksize=100 | Single forward pass (fit_transform) |
+| **Online strategy** | Full corpus retrain per batch | merge_models() — new batch only |
+| **HITL support** | None | merge_topics(), set_topic_labels(), versioned archive |
     """)
 
 render_footer()
