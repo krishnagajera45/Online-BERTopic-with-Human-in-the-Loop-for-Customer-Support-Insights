@@ -18,9 +18,7 @@ def calculate_prevalence_change_task(
 ) -> Dict[str, Any]:
     """
     Calculate change in topic distribution (prevalence) between models.
-    
-    Logic moved from DriftDetector.calculate_prevalence_change()
-    
+        
     Args:
         current_model: Current BERTopic model
         previous_model: Previous BERTopic model
@@ -90,9 +88,7 @@ def calculate_centroid_shift_task(
 ) -> Dict[int, Dict[str, float]]:
     """
     Calculate centroid shift for each topic in embedding space.
-    
-    Logic moved from DriftDetector.calculate_centroid_shift()
-    
+        
     Args:
         current_model: Current BERTopic model
         previous_model: Previous BERTopic model
@@ -196,23 +192,29 @@ def calculate_keyword_divergence_task(
                 previous_words = previous_model.get_topic(topic_id)
                 
                 if current_words and previous_words:
-                    # Normalize weights to probability distributions
-                    current_weights = normalize_weights(current_words)
-                    previous_weights = normalize_weights(previous_words)
-                    
-                    # Ensure same length
-                    max_len = max(len(current_weights), len(previous_weights))
-                    current_weights += [0] * (max_len - len(current_weights))
-                    previous_weights += [0] * (max_len - len(previous_weights))
-                    
-                    # Calculate Jensen-Shannon divergence
-                    # JS(P||Q) = 0.5 × KL(P||M) + 0.5 × KL(Q||M)
-                    # Where M = (P + Q) / 2 (midpoint)
-                    js_div = jensenshannon(current_weights, previous_weights)
-                    
+                    # Build word → weight dicts for vocabulary-aligned comparison
+                    current_word_weights  = {w: s for w, s in current_words}
+                    previous_word_weights = {w: s for w, s in previous_words}
+
+                    # Union vocabulary so both distributions cover the same words
+                    vocab = sorted(set(current_word_weights) | set(previous_word_weights))
+
+                    current_vec  = np.array([current_word_weights.get(w, 0.0)  for w in vocab])
+                    previous_vec = np.array([previous_word_weights.get(w, 0.0) for w in vocab])
+
+                    # Normalise to proper probability distributions (sum to 1)
+                    if current_vec.sum() > 0:
+                        current_vec = current_vec / current_vec.sum()
+                    if previous_vec.sum() > 0:
+                        previous_vec = previous_vec / previous_vec.sum()
+
+                    # Jensen-Shannon divergence on aligned vocabulary
+                    # JS(P||Q) = 0.5 × KL(P||M) + 0.5 × KL(Q||M),  M = (P+Q)/2
+                    js_div = jensenshannon(current_vec, previous_vec)
+
                     keyword_divergences[int(topic_id)] = {
                         'js_divergence': float(js_div),
-                        'current_top_words': [w for w, _ in current_words[:10]],
+                        'current_top_words':  [w for w, _ in current_words[:10]],
                         'previous_top_words': [w for w, _ in previous_words[:10]]
                     }
             
@@ -235,9 +237,7 @@ def detect_topic_changes_task(
 ) -> Dict[str, List[int]]:
     """
     Detect new and disappeared topics.
-    
-    Logic moved from DriftDetector.detect_new_and_disappeared_topics()
-    
+        
     Args:
         current_model: Current BERTopic model
         previous_model: Previous BERTopic model
@@ -278,8 +278,6 @@ def generate_drift_alerts_task(
 ) -> List[Dict[str, Any]]:
     """
     Generate alerts when drift exceeds thresholds.
-    
-    Logic moved from DriftDetector.generate_drift_alerts()
     
     Args:
         drift_metrics: Dictionary with all drift metrics
@@ -371,19 +369,19 @@ def generate_drift_alerts_task(
             'topic_id': -1,
             'window_start': window_start,
             'severity': 'medium',
-            'reason': f'{len(new_topics)} new topics appeared',
-            'metrics_json': str({'new_topics': new_topics}),
+            'reason': 'New topics appeared',
+            'metrics_json': str({'new_topics': new_topics, 'count': len(new_topics)}),
             'created_at': timestamp
         })
-    
+
     if len(disappeared_topics) > thresholds['disappeared_topic_threshold']:
         alerts.append({
             'alert_id': generate_alert_id(),
             'topic_id': -1,
             'window_start': window_start,
             'severity': 'medium',
-            'reason': f'{len(disappeared_topics)} topics disappeared',
-            'metrics_json': str({'disappeared_topics': disappeared_topics}),
+            'reason': 'Topics disappeared',
+            'metrics_json': str({'disappeared_topics': disappeared_topics, 'count': len(disappeared_topics)}),
             'created_at': timestamp
         })
     

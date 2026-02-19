@@ -168,11 +168,10 @@ def complete_pipeline_flow(
         
         # Log BERTopic metrics to MLflow (from saved file)
         try:
-            import json as _json
             metrics_path = Path("outputs/metrics/bertopic_metrics.json")
             if metrics_path.exists():
                 with open(metrics_path, 'r') as f:
-                    bt_data = _json.load(f)
+                    bt_data = json.load(f)
                 latest = bt_data.get("latest", bt_data)
                 if latest.get("coherence_c_v") is not None:
                     mlflow_logger.log_metrics({
@@ -205,17 +204,13 @@ def complete_pipeline_flow(
                         logger.info(f"LDA using cumulative corpus: {len(lda_documents)} docs (same scope as BERTopic merged model)")
                     except Exception as e:
                         logger.warning(f"Could not load cumulative corpus for LDA: {e}, using current batch only")
-                
                 # Use the same number of topics as BERTopic discovered (excluding outlier topic -1)
                 bertopic_num_topics = len(set(topics)) - (1 if -1 in topics else 0)
-                
                 # Use configured number of topics or BERTopic's count
                 lda_num_topics = getattr(config.lda, 'num_topics', None)
                 if lda_num_topics is None or lda_num_topics == 'auto':
                     lda_num_topics = max(bertopic_num_topics, 5)  # Minimum 5 topics
-                
                 logger.info(f"Training LDA with {lda_num_topics} topics on cumulative corpus (BERTopic: {bertopic_num_topics} excluding outliers)")
-                
                 lda_metrics = lda_comparison_flow(
                     documents=lda_documents,
                     num_topics=lda_num_topics,
@@ -223,7 +218,6 @@ def complete_pipeline_flow(
                     window_start=start_date,
                     window_end=end_date
                 )
-                
                 # Log LDA metrics to MLflow
                 if lda_metrics.get('status') == 'success':
                     mlflow_logger.log_metrics({
@@ -236,7 +230,6 @@ def complete_pipeline_flow(
                     logger.info("LDA comparison complete")
                 else:
                     logger.warning(f"LDA comparison skipped or failed: {lda_metrics.get('reason', 'unknown')}")
-                
             except Exception as e:
                 logger.error(f"LDA comparison failed: {e}", exc_info=True)
                 logger.warning("Pipeline will continue without LDA metrics")
@@ -309,15 +302,12 @@ def complete_pipeline_flow(
         logger.info("POST-PIPELINE VERIFICATION")
         logger.info("=" * 80)
         try:
-            import json
             corpus_path = Path(config.storage.current_model_path).parent / (Path(config.storage.current_model_path).stem + "_corpus.json")
             assignments_path = Path("outputs/assignments/doc_assignments.csv")
-            
             if corpus_path.exists() and assignments_path.exists():
                 with open(corpus_path, 'r') as f:
                     corpus = json.load(f)
                 assignments_df = pd.read_csv(assignments_path)
-                
                 logger.info(f"Corpus documents:     {len(corpus)}")
                 logger.info(f"Assignments rows:     {len(assignments_df)}")
                 

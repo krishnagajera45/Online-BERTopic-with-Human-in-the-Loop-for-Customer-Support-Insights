@@ -3,7 +3,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import ast, json, sys
+import ast
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -22,8 +23,7 @@ api = st.session_state.api_client
 
 page_header(
     "Drift Detection & Alerts",
-    "Monitor topic evolution — prevalence shifts, centroid drift, JS divergence, "
-    "new / disappeared topics, and severity-coded alerts.",
+    "Monitor topic evolution — prevalence shifts, centroid drift, JS divergence, and severity-coded alerts.",
     "⚠️",
 )
 
@@ -43,285 +43,266 @@ if not alerts_raw:
 
 alerts_df = pd.DataFrame(alerts_raw)
 
+# ── Normalise legacy dynamic reason strings (e.g. "26 new topics appeared") ──
+import re
+def _normalise_reason(r: str) -> str:
+    if re.match(r'^\d+ new topics appeared$', str(r)):
+        return 'New topics appeared'
+    if re.match(r'^\d+ topics disappeared$', str(r)):
+        return 'Topics disappeared'
+    return r
+alerts_df['reason'] = alerts_df['reason'].apply(_normalise_reason)
+
+# ── Severity colour map ───────────────────────────────────────────────────────
+SEV_COLOR = {"high": "#E17055", "medium": "#FDCB6E", "low": "#00B894"}
+SEV_ICON  = {"high": "🔴", "medium": "🟠", "low": "🟢"}
+
 # ── KPI Row ───────────────────────────────────────────────────────────────────
 high = len(alerts_df[alerts_df["severity"] == "high"]) if "severity" in alerts_df.columns else 0
-med = len(alerts_df[alerts_df["severity"] == "medium"]) if "severity" in alerts_df.columns else 0
-low = len(alerts_df[alerts_df["severity"] == "low"]) if "severity" in alerts_df.columns else 0
+med  = len(alerts_df[alerts_df["severity"] == "medium"]) if "severity" in alerts_df.columns else 0
+low  = len(alerts_df[alerts_df["severity"] == "low"])  if "severity" in alerts_df.columns else 0
 
 k1, k2, k3, k4 = st.columns(4)
-with k1:
-    metric_card("🚨", len(alerts_df), "Total Alerts")
-with k2:
-    metric_card("🔴", high, "High Severity")
-with k3:
-    metric_card("🟠", med, "Medium Severity")
-with k4:
-    metric_card("🟢", low, "Low Severity")
+with k1: metric_card("🚨", len(alerts_df), "Total Alerts")
+with k2: metric_card("🔴", high, "High Severity")
+with k3: metric_card("🟠", med,  "Medium Severity")
+with k4: metric_card("🟢", low,  "Low Severity")
 
 st.divider()
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_timeline, tab_detail, tab_metrics, tab_score = st.tabs([
-    "📅 Alert Timeline",
+# ── Parse metrics once for use in both tabs ───────────────────────────────────
+centroid_data, prevalence_data, jsd_data = [], [], []
+for _, row in alerts_df.iterrows():
+    try:
+        m = ast.literal_eval(row.get("metrics_json", "{}")) if isinstance(row.get("metrics_json"), str) else {}
+    except Exception:
+        m = {}
+    win = row.get("window_start", "")
+    if "centroid_shift" in m:
+        centroid_data.append({
+            "topic_id": row["topic_id"],
+            "centroid_shift": m["centroid_shift"],
+            "similarity": m.get("similarity", 0),
+            "window": win,
+        })
+    if "prevalence_change" in m:
+        prevalence_data.append({
+            "prevalence_change": m["prevalence_change"],
+            "threshold": m.get("threshold", 0.25),
+            "window": win,
+        })
+    if "js_divergence" in m:
+        jsd_data.append({
+            "topic_id": row["topic_id"],
+            "js_divergence": m["js_divergence"],
+            "window": win,
+        })
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TWO TABS
+# ══════════════════════════════════════════════════════════════════════════════
+tab_details, tab_analytics = st.tabs([
     "📋 Alert Details",
-    "📊 Drift Metrics Viz",
-    "🎯 Drift Score Card",
+    "📊 Drift Analytics",
 ])
 
-# ── TIMELINE ──────────────────────────────────────────────────────────────────
-with tab_timeline:
-    st.markdown("### Alert Timeline")
-    st.caption("Each dot is an alert — hover for details.")
-
-    sev_color = {"high": "#E17055", "medium": "#FDCB6E", "low": "#00B894"}
-    alerts_df["color"] = alerts_df["severity"].map(sev_color).fillna("#636E72")
-    alerts_df["idx"] = range(len(alerts_df))
-
-    fig_tl = px.scatter(
-        alerts_df, x="created_at", y="severity",
-        color="severity", color_discrete_map=sev_color,
-        hover_data=["alert_id", "topic_id", "reason"],
-        symbol="severity",
-        size_max=12,
-    )
-    fig_tl.update_traces(marker_size=10)
-    fig_tl.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(t=20, b=30),
-        yaxis_title="Severity",
-        xaxis_title="Time",
-        height=320,
-    )
-    st.plotly_chart(fig_tl, width='stretch')
-
-    # Alerts by reason bar chart
-    st.markdown("### Alerts by Reason")
-    reason_counts = alerts_df["reason"].value_counts().reset_index()
-    reason_counts.columns = ["reason", "count"]
-    fig_r = px.bar(
-        reason_counts, x="count", y="reason", orientation="h",
-        color="count", color_continuous_scale="OrRd",
-    )
-    fig_r.update_layout(
-        template="plotly_dark",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(t=10, b=10, l=10, r=10),
-        coloraxis_showscale=False,
-        yaxis_title="",
-        height=max(200, len(reason_counts) * 35),
-    )
-    st.plotly_chart(fig_r, width='stretch')
-
-# ── DETAIL ────────────────────────────────────────────────────────────────────
-with tab_detail:
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — ALERT DETAILS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_details:
     st.markdown("### Filter & Inspect Alerts")
+    st.caption("Use the filters below to narrow down alerts by severity or type.")
 
     fc1, fc2 = st.columns(2)
     with fc1:
         sev_filter = st.multiselect(
-            "Severity:", ["high", "medium", "low"], default=["high", "medium"]
+            "Severity:", ["high", "medium", "low"], default=["high", "medium", "low"]
         )
     with fc2:
         reason_opts = alerts_df["reason"].unique().tolist()
-        reason_filter = st.multiselect("Reason:", reason_opts, default=reason_opts)
+        reason_filter = st.multiselect("Alert Type:", reason_opts, default=reason_opts)
 
     filtered = alerts_df[
         (alerts_df["severity"].isin(sev_filter)) &
         (alerts_df["reason"].isin(reason_filter))
     ]
-    st.caption(f"Showing {len(filtered)} of {len(alerts_df)} alerts")
+    st.caption(f"Showing **{len(filtered)}** of **{len(alerts_df)}** alerts")
 
-    sev_icons = {"high": "🔴", "medium": "🟠", "low": "🟢"}
+    if filtered.empty:
+        st.info("No alerts match the selected filters.")
+    else:
+        for _, row in filtered.iterrows():
+            icon = SEV_ICON.get(row["severity"], "⚪")
+            with st.expander(
+                f"{icon} **{row['severity'].upper()}** — {row['reason']}  |  Topic `{row['topic_id']}`  |  {row.get('created_at', '')}"
+            ):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown(f"**Alert ID:** `{row['alert_id']}`")
+                    st.markdown(f"**Topic ID:** `{row['topic_id']}`")
+                    st.markdown(f"**Time Window:** {row.get('window_start', '—')}")
+                with dc2:
+                    st.markdown(
+                        f"**Severity:** {status_badge(row['severity'].upper(), row['severity'])}",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(f"**Detected At:** {row.get('created_at', '—')}")
 
-    for _, row in filtered.iterrows():
-        icon = sev_icons.get(row["severity"], "⚪")
-        with st.expander(f"{icon} {row['severity'].upper()} — {row['reason']}  |  Topic {row['topic_id']}"):
-            dc1, dc2 = st.columns(2)
-            with dc1:
-                st.markdown(f"**Alert ID:** `{row['alert_id']}`")
-                st.markdown(f"**Topic ID:** {row['topic_id']}")
-                st.markdown(f"**Window:** {row.get('window_start', '—')}")
-            with dc2:
-                st.markdown(f"**Severity:** {status_badge(row['severity'].upper(), row['severity'])}", unsafe_allow_html=True)
-                st.markdown(f"**Created:** {row.get('created_at', '—')}")
+                # Show parsed metrics in a readable way
+                metrics_str = row.get("metrics_json", "")
+                if metrics_str:
+                    try:
+                        metrics = ast.literal_eval(metrics_str) if isinstance(metrics_str, str) else metrics_str
+                        st.markdown("**Drift Metrics:**")
+                        st.json(metrics)
+                    except Exception:
+                        st.code(metrics_str)
 
-            # Parse metrics
-            metrics_str = row.get("metrics_json", "")
-            if metrics_str:
-                try:
-                    metrics = ast.literal_eval(metrics_str) if isinstance(metrics_str, str) else metrics_str
-                    st.json(metrics)
-                except Exception:
-                    st.code(metrics_str)
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — DRIFT ANALYTICS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_analytics:
 
-# ── DRIFT METRICS VIZ ────────────────────────────────────────────────────────
-with tab_metrics:
-    st.markdown("### Drift Metrics Visualization")
-    st.caption("Extracted from alert payloads — centroid shifts, prevalence, and JS divergence.")
+    # ── ROW 1: Alert Trends ──────────────────────────────────────────────────
+    st.markdown("### Alert Trends")
+    tr1, tr2 = st.columns([3, 2])
 
-    # Parse metrics from alerts
-    centroid_data = []
-    prevalence_data = []
+    with tr1:
+        st.markdown("#### Alerts per Batch Window")
+        st.caption("Number of alerts by severity for each pipeline batch — rising bars signal increasing drift.")
 
-    for _, row in alerts_df.iterrows():
-        try:
-            m = ast.literal_eval(row.get("metrics_json", "{}")) if isinstance(row.get("metrics_json"), str) else {}
-        except Exception:
-            m = {}
+        # Count alerts per window_start × severity
+        if "window_start" in alerts_df.columns and alerts_df["window_start"].notna().any():
+            batch_sev = (
+                alerts_df.groupby(["window_start", "severity"])
+                .size()
+                .reset_index(name="count")
+            )
+            # Ensure severity order: high on top
+            sev_order = ["low", "medium", "high"]
+            batch_sev["severity"] = pd.Categorical(batch_sev["severity"], categories=sev_order, ordered=True)
+            batch_sev = batch_sev.sort_values(["window_start", "severity"])
 
-        if "centroid_shift" in m:
-            centroid_data.append({
-                "topic_id": row["topic_id"],
-                "centroid_shift": m["centroid_shift"],
-                "similarity": m.get("similarity", 0),
-                "window": row.get("window_start", ""),
-            })
-        if "prevalence_change" in m:
-            prevalence_data.append({
-                "prevalence_change": m["prevalence_change"],
-                "threshold": m.get("threshold", 0.15),
-                "window": row.get("window_start", ""),
-            })
+            fig_batch = px.bar(
+                batch_sev,
+                x="window_start", y="count",
+                color="severity",
+                color_discrete_map=SEV_COLOR,
+                category_orders={"severity": sev_order},
+                labels={"window_start": "Batch Window", "count": "Alert Count", "severity": "Severity"},
+                barmode="stack",
+            )
+            fig_batch.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=10, b=40),
+                xaxis_tickangle=-30,
+                height=300,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_batch, width='stretch')
+        else:
+            st.info("No batch window data available.")
 
-    mc1, mc2 = st.columns(2)
+    with tr2:
+        st.markdown("#### Alerts by Type")
+        st.caption("Which kind of drift is most common.")
+        reason_counts = alerts_df["reason"].value_counts().reset_index()
+        reason_counts.columns = ["reason", "count"]
+        fig_r = px.bar(
+            reason_counts, x="count", y="reason", orientation="h",
+            color="count", color_continuous_scale="OrRd",
+            labels={"count": "Count", "reason": ""},
+        )
+        fig_r.update_layout(
+            template="plotly_dark",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=10, b=10, l=10, r=10),
+            coloraxis_showscale=False,
+            height=300,
+        )
+        st.plotly_chart(fig_r, width='stretch')
 
-    with mc1:
+    st.divider()
+
+    # ── ROW 2: Drift Metric Deep-Dive ─────────────────────────────────────────
+    st.markdown("### Drift Metric Deep-Dive")
+    dm1, dm2 = st.columns(2)
+
+    with dm1:
+        st.markdown("#### Centroid Shift by Topic")
+        st.caption("How far each topic moved in semantic space (higher = more drift).")
         if centroid_data:
             cd = pd.DataFrame(centroid_data)
-            st.markdown("#### Centroid Shift by Topic")
             fig_cs = px.bar(
                 cd.groupby("topic_id")["centroid_shift"].mean().reset_index(),
                 x="topic_id", y="centroid_shift",
                 color="centroid_shift", color_continuous_scale="Reds",
-                labels={"topic_id": "Topic ID", "centroid_shift": "Avg Centroid Shift"},
+                labels={"topic_id": "Topic ID", "centroid_shift": "Avg Shift"},
             )
-            fig_cs.add_hline(y=0.25, line_dash="dash", line_color="#FDCB6E",
-                             annotation_text="Threshold (0.25)")
+            fig_cs.add_hline(y=0.35, line_dash="dash", line_color="#FDCB6E",
+                             annotation_text="Threshold (0.35)")
             fig_cs.update_layout(
                 template="plotly_dark",
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(t=30, b=30),
                 coloraxis_showscale=False,
+                height=300,
             )
             st.plotly_chart(fig_cs, width='stretch')
         else:
-            st.info("No centroid shift data available.")
+            st.info("No centroid shift data in current alerts.")
 
-    with mc2:
+    with dm2:
+        st.markdown("#### Prevalence Change Over Time")
+        st.caption("How much the topic distribution (TVD) shifted each batch.")
         if prevalence_data:
             pd_df = pd.DataFrame(prevalence_data)
-            st.markdown("#### Prevalence Change Over Time")
             fig_pc = px.line(
                 pd_df, x="window", y="prevalence_change", markers=True,
                 color_discrete_sequence=["#E17055"],
-                labels={"window": "Window", "prevalence_change": "TVD"},
+                labels={"window": "Batch Window", "prevalence_change": "TVD"},
             )
-            if not pd_df.empty:
-                fig_pc.add_hline(y=pd_df["threshold"].iloc[0], line_dash="dash",
-                                 line_color="#FDCB6E", annotation_text="Threshold")
+            fig_pc.add_hline(y=pd_df["threshold"].iloc[0], line_dash="dash",
+                             line_color="#FDCB6E", annotation_text="Threshold")
             fig_pc.update_layout(
                 template="plotly_dark",
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(t=30, b=30),
+                height=300,
             )
             st.plotly_chart(fig_pc, width='stretch')
         else:
-            st.info("No prevalence change data available.")
+            st.info("No prevalence change data in current alerts.")
 
-    # Similarity heatmap
-    if centroid_data:
-        st.markdown("#### Topic Similarity (from centroid analysis)")
-        cd = pd.DataFrame(centroid_data)
-        # pivot topic vs window
-        pivot = cd.pivot_table(index="topic_id", columns="window", values="similarity", aggfunc="mean")
-        if not pivot.empty:
-            fig_hm = px.imshow(
-                pivot, color_continuous_scale="Tealgrn", aspect="auto",
-                labels={"x": "Window", "y": "Topic ID", "color": "Similarity"},
-            )
-            fig_hm.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=30, b=10),
-            )
-            st.plotly_chart(fig_hm, width='stretch')
-
-# ── DRIFT SCORE CARD ─────────────────────────────────────────────────────────
-with tab_score:
-    st.markdown("### System Drift Health Score")
-    st.caption("An aggregate drift score computed from all alert data.")
-
-    # Compute a simple weighted score
-    weights = {"high": 3, "medium": 2, "low": 1}
-    total_weight = sum(weights.get(row["severity"], 0) for _, row in alerts_df.iterrows())
-    max_possible = len(alerts_df) * 3
-    drift_pct = (total_weight / max_possible * 100) if max_possible > 0 else 0
-    health_pct = max(0, 100 - drift_pct)
-
-    sc1, sc2, sc3 = st.columns(3)
-    with sc1:
-        metric_card("🎯", f"{health_pct:.0f}%", "Health Score")
-    with sc2:
-        metric_card("📊", f"{drift_pct:.0f}%", "Drift Intensity")
-    with sc3:
-        if health_pct > 70:
-            level = "HEALTHY"
-            badge = status_badge(level, "success")
-        elif health_pct > 40:
-            level = "MODERATE"
-            badge = status_badge(level, "medium")
-        else:
-            level = "AT RISK"
-            badge = status_badge(level, "high")
-        st.markdown(f"### System Status\n{badge}", unsafe_allow_html=True)
-
-    st.divider()
-
-    # Gauge chart
-    fig_gauge = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=health_pct,
-        title={"text": "Topic Stability Index", "font": {"size": 18, "color": "#DFE6E9"}},
-        delta={"reference": 80, "increasing": {"color": "#00B894"}, "decreasing": {"color": "#E17055"}},
-        gauge={
-            "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#636E72"},
-            "bar": {"color": "#6C5CE7"},
-            "bgcolor": "#1A1D23",
-            "borderwidth": 2,
-            "bordercolor": "#2D3142",
-            "steps": [
-                {"range": [0, 40], "color": "rgba(225,112,85,0.2)"},
-                {"range": [40, 70], "color": "rgba(253,203,110,0.2)"},
-                {"range": [70, 100], "color": "rgba(0,184,148,0.2)"},
-            ],
-            "threshold": {
-                "line": {"color": "#E17055", "width": 4},
-                "thickness": 0.75,
-                "value": 40,
-            },
-        },
-    ))
-    fig_gauge.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font={"color": "#DFE6E9"},
-        height=300,
-        margin=dict(t=40, b=10),
-    )
-    st.plotly_chart(fig_gauge, width='stretch')
-
-    # Summary table
-    st.markdown("### Severity Breakdown")
-    sev_summary = alerts_df["severity"].value_counts().reset_index()
-    sev_summary.columns = ["Severity", "Count"]
-    sev_summary["Weight"] = sev_summary["Severity"].map(weights)
-    sev_summary["Score"] = sev_summary["Count"] * sev_summary["Weight"]
-    st.dataframe(sev_summary, width='stretch', hide_index=True)
+    # ── ROW 3: JS Divergence ──────────────────────────────────────────────────
+    if jsd_data:
+        st.markdown("#### Keyword Divergence (JS) by Topic")
+        st.caption("How much each topic's keywords changed (higher = bigger shift).")
+        jd = pd.DataFrame(jsd_data)
+        fig_jsd = px.bar(
+            jd.groupby("topic_id")["js_divergence"].mean().reset_index(),
+            x="topic_id", y="js_divergence",
+            color="js_divergence", color_continuous_scale="Purples",
+            labels={"topic_id": "Topic ID", "js_divergence": "Avg JS Divergence"},
+        )
+        fig_jsd.add_hline(y=0.4, line_dash="dash", line_color="#FDCB6E",
+                          annotation_text="Threshold (0.4)")
+        fig_jsd.update_layout(
+            template="plotly_dark",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=30, b=30),
+            coloraxis_showscale=False,
+            height=300,
+        )
+        st.plotly_chart(fig_jsd, width='stretch')
+    else:
+        st.info("No keyword divergence data in current alerts.")
 
 render_footer()
 
