@@ -262,7 +262,28 @@ with st.expander("🎯 Topic Diversity"):
     
     **Implementation:** Computed by collecting top-N keywords from all topics (excluding -1) and calculating
     the ratio of unique terms to total possible terms (N × num_topics).
+    
+    ---
+    
+    **⚠️ Important: Why BERTopic diversity is always much higher than LDA — this is algorithmic design, not model quality**
+    
+    The large gap (BERTopic ~0.94 vs LDA ~0.23) does **not** mean LDA produces worse topics. It reflects
+    how each model scores words for a topic:
+    
+    - **LDA (Dirichlet):** Words are scored as P(word | topic). Because the Dirichlet distribution is a
+      generative mixture model, generic high-frequency words like *"account"*, *"help"*, *"issue"* naturally
+      receive non-negligible probability in nearly every topic. The same word legitimately ranks in the
+      top-10 of many topics — this is correct LDA behaviour, not redundancy.
+    
+    - **BERTopic (c-TF-IDF):** Words are scored by how much more they appear in one topic relative to all
+      other topics. This scoring method explicitly penalises words shared across topics — a word common
+      to all topics gets a near-zero c-TF-IDF score everywhere. The result is almost no overlap by design.
+    
+    **Bottom line:** Diversity measures *keyword overlap*, which is structurally suppressed by c-TF-IDF
+    and structurally allowed by Dirichlet. Comparing raw numbers across the two models on this metric is
+    a comparison of two different scoring philosophies, not two different topic quality levels.
     """)
+
 
 with st.expander("🧮 Silhouette Score"):
     st.markdown("""

@@ -17,6 +17,7 @@ from src.etl.tasks.bertopic_metrics import (
     calculate_bertopic_silhouette_task,
     save_bertopic_metrics_task,
 )
+from src.etl.tasks.lda_tasks import preprocess_documents_for_lda_task
 from src.utils import load_config, StorageManager
 from src.dashboard.utils.api_client import APIClient
 
@@ -168,8 +169,24 @@ def bertopic_modeling_flow(
     try:
         from src.utils import load_bertopic_model
         model = load_bertopic_model(config.storage.current_model_path)
-        
-        coherence_metrics = calculate_bertopic_coherence_task(model, documents, topics)
+
+        # ── Shared tokenisation (same as LDA) for fair coherence comparison ──
+        # Uses simple_preprocess + WordNetLemmatizer + no_below=5 / no_above=0.5
+        try:
+            shared_texts, shared_dict, _ = preprocess_documents_for_lda_task(documents)
+            logger.info(
+                f"Shared coherence tokens built: {len(shared_texts)} docs, "
+                f"vocab={len(shared_dict)}"
+            )
+        except Exception as tok_err:
+            logger.warning(f"Shared tokenisation failed ({tok_err}); coherence will use internal fallback")
+            shared_texts, shared_dict = None, None
+
+        coherence_metrics = calculate_bertopic_coherence_task(
+            model, documents, topics,
+            pre_texts=shared_texts,
+            pre_dictionary=shared_dict,
+        )
         try:
             silhouette_score = calculate_bertopic_silhouette_task(model, documents, topics)
         except Exception as e:

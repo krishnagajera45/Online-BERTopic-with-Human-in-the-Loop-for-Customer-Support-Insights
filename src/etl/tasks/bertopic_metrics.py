@@ -17,15 +17,24 @@ from src.utils import load_config
 def calculate_bertopic_coherence_task(
     model,
     documents: List[str],
-    topics: np.ndarray
+    topics: np.ndarray,
+    pre_texts: List[List[str]] = None,
+    pre_dictionary=None,
 ) -> Dict[str, float]:
     """
     Calculate coherence metrics for BERTopic model.
-    
+
+    For a fair comparison with LDA, pass ``pre_texts`` and ``pre_dictionary``
+    produced by ``preprocess_documents_for_lda_task`` so both models are
+    evaluated against the *same* tokenised representation (simple_preprocess +
+    WordNetLemmatizer, no_below=5, no_above=0.5, keep_n=10000).
+
     Args:
         model: BERTopic model
-        documents: Document texts
+        documents: Document texts (used only when pre_texts is None)
         topics: Topic assignments
+        pre_texts: Pre-tokenised texts — same list used by LDA coherence
+        pre_dictionary: Pre-built Gensim Dictionary — same one used by LDA
         
     Returns:
         Dictionary with coherence scores
@@ -34,34 +43,49 @@ def calculate_bertopic_coherence_task(
     logger.info("Calculating BERTopic coherence metrics")
     
     try:
-        # Preprocess documents for coherence calculation
-        from nltk.tokenize import word_tokenize
-        from nltk.corpus import stopwords
-        import nltk
-        
-        # Download required NLTK data if not present
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            nltk.download('punkt', quiet=True)
-        
-        try:
-            nltk.data.find('corpora/stopwords')
-        except LookupError:
-            nltk.download('stopwords', quiet=True)
-        
-        stop_words = set(stopwords.words('english'))
-        
-        # Tokenize documents
-        texts = []
-        for doc in documents:
-            tokens = [w.lower() for w in word_tokenize(doc) if w.isalnum() and w.lower() not in stop_words and len(w) > 2]
-            if tokens:
-                texts.append(tokens)
-        
-        # Create dictionary
-        dictionary = Dictionary(texts)
-        dictionary.filter_extremes(no_below=2, no_above=0.5)
+        if pre_texts is not None and pre_dictionary is not None:
+            # ── Fair-comparison path: use externally supplied shared tokens ──
+            logger.info(
+                "Using shared tokenisation (same as LDA path) for coherence: "
+                f"{len(pre_texts)} docs, vocab size {len(pre_dictionary)}"
+            )
+            texts = pre_texts
+            dictionary = pre_dictionary
+        else:
+            # ── Fallback: build tokens internally (legacy behaviour) ──
+            logger.warning(
+                "pre_texts/pre_dictionary not supplied — building internal tokens "
+                "(word_tokenize + stopwords, no_below=5, no_above=0.5, keep_n=10000). "
+                "For a fair LDA comparison pass the shared LDA preprocessing output."
+            )
+            from nltk.tokenize import word_tokenize
+            from nltk.corpus import stopwords
+            import nltk
+
+            try:
+                nltk.data.find('tokenizers/punkt')
+            except LookupError:
+                nltk.download('punkt', quiet=True)
+
+            try:
+                nltk.data.find('corpora/stopwords')
+            except LookupError:
+                nltk.download('stopwords', quiet=True)
+
+            stop_words = set(stopwords.words('english'))
+
+            texts = []
+            for doc in documents:
+                tokens = [
+                    w.lower() for w in word_tokenize(doc)
+                    if w.isalnum() and w.lower() not in stop_words and len(w) > 2
+                ]
+                if tokens:
+                    texts.append(tokens)
+
+            # Use same thresholds as LDA preprocessing for consistency
+            dictionary = Dictionary(texts)
+            dictionary.filter_extremes(no_below=5, no_above=0.5, keep_n=10000)
         
         # Get topics from BERTopic model (exclude outlier -1)
         topic_words_list = []

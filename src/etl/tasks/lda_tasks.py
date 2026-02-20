@@ -227,7 +227,7 @@ def calculate_silhouette_task(
                 topic_assignments.append(-1)  # No topic assigned
         
         # Check if we have enough topics for silhouette calculation
-        unique_topics = set(topic_assignments)
+        unique_topics = set(t for t in topic_assignments if t != -1)
         if len(unique_topics) < 2:
             logger.warning(f"Not enough topics for silhouette calculation: {len(unique_topics)}")
             return 0.0
@@ -245,15 +245,23 @@ def calculate_silhouette_task(
                 words.extend([word] * int(count))
             reconstructed_docs.append(' '.join(words))
         
+        # Filter out -1 labels (unassigned docs) — consistent with BERTopic silhouette
+        valid_indices = [i for i, t in enumerate(topic_assignments) if t != -1]
+        if len(valid_indices) < 2:
+            logger.warning("Not enough assigned documents for silhouette after filtering -1")
+            return 0.0
+        filtered_docs = [reconstructed_docs[i] for i in valid_indices]
+        filtered_labels = [topic_assignments[i] for i in valid_indices]
+
         # Create TF-IDF matrix
-        tfidf_matrix = vectorizer.fit_transform(reconstructed_docs)
+        tfidf_matrix = vectorizer.fit_transform(filtered_docs)
         
         # Calculate silhouette score
         silhouette = silhouette_score(
             tfidf_matrix,
-            topic_assignments,
+            filtered_labels,
             metric='cosine',
-            sample_size=min(1000, len(corpus))  # Sample for efficiency
+            sample_size=min(1000, len(filtered_labels))  # Sample for efficiency
         )
         
         logger.info(f"Silhouette score: {silhouette:.4f}")
