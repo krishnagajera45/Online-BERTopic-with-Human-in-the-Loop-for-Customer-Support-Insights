@@ -78,3 +78,5 @@ docker-compose.yml
 all.md
 models/*
 outputs/*
+outputs/metrics/bertopic_metrics.json
+outputs/metrics/lda_metrics.json
