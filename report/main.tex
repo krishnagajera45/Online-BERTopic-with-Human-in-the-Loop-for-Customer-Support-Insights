@@ -29,10 +29,15 @@
 An Implementation-Centered Report on a BERTopic-Based Monitoring System}
 
 \author{%
-\IEEEauthorblockN{\textless Your Name\textgreater}
-\IEEEauthorblockA{\textless Course / Department\textgreater\\
-\textless University\textgreater\\
-\textless email\textgreater}
+\IEEEauthorblockN{Krishna Gajera}
+\IEEEauthorblockA{College of Engineering\\
+San Diego State University\\
+kgajera1820@sdsu.edu}
+\and
+\IEEEauthorblockN{Professor Name}
+\IEEEauthorblockA{College of Engineering\\
+San Diego State University\\
+xxx@sdsu.edu}
 }
 
 \maketitle
@@ -48,11 +53,30 @@ BERTopic, topic modeling, online analytics, LDA, NMF, drift detection, human-in-
 \section{Introduction}
 Topic modeling is often introduced through offline experiments in which a fixed corpus is analyzed once and the resulting topics are treated as static. That setup is useful for learning algorithms, but it does not match how many real analytical systems are expected to operate. In practical settings such as customer-support monitoring, social media analysis, or continuously updated content streams, the main challenge is not simply to fit a topic model once. Instead, the challenge is to repeatedly ingest new text, preserve useful topic structure from prior batches, track distributional changes over time, compare competing modeling approaches, and allow analysts to intervene when automatically generated topics are poorly named or semantically redundant.
 
-The implemented project addresses that systems problem with \bertopic as the main model. The choice of \bertopic is central to the architecture because it combines contextual sentence embeddings, manifold reduction, density-based clustering, and class-based TF--IDF topic representation. This gives the system a strong semantic foundation for short and noisy text compared with purely lexical models. However, the project does not present \bertopic in isolation. It also includes \lda and \nmf as explicit benchmark models, allowing the quality of semantically derived topics to be compared against classical bag-of-words baselines.
+This report presents the design and implementation of a batch-recurring online topic monitoring system centered on \bertopic. The project is motivated by the need to combine semantic topic discovery with operational reliability. Specifically, \bertopic is used as the deployed model for topic extraction and inference, while \lda and \nmf are integrated as benchmark baselines to provide comparative evidence under a common evaluation framework.
 
-From a final-project perspective, the most important contribution of the implementation is not a novel learning algorithm. Rather, it is the construction of an end-to-end topic monitoring system that operationalizes \bertopic across data ingestion, recurring model updates, drift assessment, interactive review, and dashboard presentation. The implementation therefore has both modeling and systems dimensions. On the modeling side, it uses \bertopic as the production topic model and benchmarks it against \lda and \nmf. On the systems side, it organizes the workflow into a recurring pipeline, exposes analytical outputs through an application programming interface, and provides a front-end for monitoring and human intervention.
+The core technical idea is a \emph{train-and-merge} temporal update strategy. For each incoming time window, a fresh \bertopic model is trained on the new batch and then merged with the currently deployed model. This strategy allows the system to preserve prior topic structure while incorporating emerging themes, and it aligns naturally with model versioning, rollback, and drift monitoring requirements. Beyond modeling, the implementation includes API-based serving, dashboard analytics, and human-in-the-loop (\hitl) controls for topic relabeling and consolidation.
 
-A second important point is methodological honesty. This report is written only from what can be supported by the uploaded code and files. If a capability is partially implemented, that is stated explicitly. If a result comes from an external screenshot rather than a reproducible run within the uploaded archive, that is also stated explicitly. The goal is not to maximize claims, but to provide a technically strong and evidence-based explanation of what the project actually does.
+The main contributions of this project are as follows:
+\begin{enumerate}[leftmargin=*]
+    \item An end-to-end architecture for online topic intelligence, integrating ingestion, modeling, monitoring, and interaction layers.
+    \item A practical \bertopic update mechanism based on batch retraining and model merging for temporal adaptation.
+    \item A comparative three-model framework (\bertopic, \lda, \nmf) with shared metrics for defensible model selection.
+    \item A multi-signal drift detection module using prevalence change, centroid shift, keyword divergence, and topic birth/death events.
+    \item A governed \hitl workflow with audit logs, model version history, and rollback support.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section II reviews related work. Section III defines project scope. Section IV describes system architecture. Sections V--VIII present processing methodology, model design, and monitoring mechanisms. Section IX discusses evaluation and results. Section X analyzes strengths and limitations, and Section XI concludes the report.
+
+\section{Related Work}
+\subsection{Classical Topic Modeling Baselines}
+Probabilistic and matrix-factorization approaches remain foundational in topic modeling. \lda models documents as mixtures of latent topics and topics as distributions over words \cite{lda}. \nmf factorizes a document-term matrix into non-negative latent components and often produces interpretable keyword groups \cite{nmf}. These methods are computationally efficient and widely studied, but they are strongly tied to lexical overlap and may degrade on short, noisy, or highly paraphrastic text streams.
+
+\subsection{Semantic Topic Modeling with BERTopic}
+Recent methods leverage contextual embeddings to improve semantic grouping quality. \bertopic combines sentence embeddings \cite{sentencetransformers}, dimensionality reduction through UMAP \cite{umap}, density-based clustering with HDBSCAN \cite{hdbscan}, and class-based TF--IDF topic representation \cite{bertopic}. This pipeline is particularly suitable for evolving corpora in which semantically related documents may share limited surface vocabulary.
+
+\subsection{Online Operation, Drift, and Human Oversight}
+Most educational topic modeling workflows remain offline and single-pass, whereas deployed systems require temporal updates, monitoring, and analyst control. Practical MLOps patterns emphasize orchestration, reproducibility, and lifecycle observability \cite{prefect,mlflow}. In this context, the present work contributes an implementation-focused integration: batch-recurring model updates via train-and-merge, multi-signal topic drift monitoring, and a human-in-the-loop interface for relabeling, topic consolidation, version tracking, and rollback. This positioning distinguishes the project from standalone modeling experiments by addressing both modeling quality and operational governance.
 
 \section{Project Objective and Implemented Scope}
 The implemented system is designed around a clear separation between a \emph{primary operational model} and \emph{comparison models}. The primary operational model is \bertopic. It is the model used for topic discovery on incoming batches, topic metadata generation, user-facing topic inspection, and inference on unseen text. The comparison models are \lda and \nmf. Their role is evaluative rather than operational: they provide reference metrics so that the behavior of the semantic topic model can be contrasted with two classical alternatives.
