@@ -1,0 +1,75 @@
+
+%% Outer Orchestration wraps: Data pipeline + Core (train/merge) + Post-modeling through drift; HITL follows.
+%% https://mermaid.live
+%%{init: {'theme': 'base', 'flowchart': {'curve': 'linear', 'padding': 16}}}%%
+
+flowchart TB
+    START((●))
+    style START fill:#0d0d0d,stroke:#000000,color:#ffffff
+
+    subgraph ORCH["Orchestration — pipeline runs per batch window"]
+        direction TB
+
+        subgraph DP["Data pipeline & DataOps — batch data per window"]
+            direction TB
+            D0[data · t]
+            D1[data · t+1]
+            D2[data · t+2 …]
+        end
+
+        subgraph CORE["Core model pipeline — training and merging"]
+            direction TB
+
+            subgraph TRAIN["Training — BERTopic (one fit per window)"]
+                direction TB
+                M1[M₁]
+                M2[M₂]
+                M3[M₃]
+            end
+
+            subgraph MRG["Merging τ — same rule after the first window"]
+                direction TB
+                MG1{merge_models · τ}
+                PM1[M_merged at t+1]
+
+                MG2{merge_models · τ}
+                PM2[M_merged at t+2]
+
+                REC["Same at t+k: last M_merged + new batch M_k"]
+
+                M1 --> MG1
+                M2 --> MG1
+                MG1 --> PM1
+
+                PM1 --> MG2
+                M3 --> MG2
+                MG2 --> PM2
+
+                PM2 -.-> REC
+            end
+        end
+
+        subgraph POST["Post-modeling — through drift detection"]
+            direction TB
+            DR["Drift detection"]
+        end
+
+        D0 --> M1
+        D1 --> M2
+        D2 --> M3
+        PM1 --> DR
+        PM2 --> DR
+        REC -.-> DR
+    end
+
+    START --> D0
+
+    HITL["Merge / split · HITL"]
+    DR --> HITL
+
+    style ORCH fill:#e8eaf6,stroke:#3949ab,stroke-width:4px
+    style DP fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style CORE fill:#eceff1,stroke:#37474f,stroke-width:2px
+    style TRAIN fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    style MRG fill:#fff8e1,stroke:#ef6c00,stroke-width:2px
+    style POST fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px

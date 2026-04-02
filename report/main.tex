@@ -34,10 +34,10 @@ An Implementation-Centered Report on a BERTopic-Based Monitoring System}
 San Diego State University\\
 kgajera1820@sdsu.edu}
 \and
-\IEEEauthorblockN{Professor Name}
+\IEEEauthorblockN{Baris Aksanli}
 \IEEEauthorblockA{College of Engineering\\
 San Diego State University\\
-xxx@sdsu.edu}
+baksanli@sdsu.edu}
 }
 
 \maketitle
@@ -118,7 +118,7 @@ Figure~\ref{fig:architecture} presents the high-level layered architecture. The 
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.88\columnwidth,height=0.42\textheight,keepaspectratio]{figures/fig1-image.png}
+\includegraphics[width=0.88\columnwidth,height=0.42\textheight,keepaspectratio]{figures/fig1.png}
 \caption{Layered architecture of the online topic monitoring platform.}
 \label{fig:architecture}
 \end{figure}
@@ -133,16 +133,16 @@ This design keeps the system batch-recurring: windows are processed in order, co
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.88\columnwidth,height=0.48\textheight,keepaspectratio]{figures/fig2-image.png}
-\caption{Orchestration strategy for one execution cycle: trigger and windowing, data pipeline, BERTopic train-and-merge, optional baselines, drift monitoring, and persistence for serving (Prefect DAG).}
+\includegraphics[width=1\columnwidth,height=0.48\textheight,keepaspectratio]{figures/Fig2-orchestration.png}
+\caption{Orchestration strategy: trigger and windowing, data pipeline, BERTopic train-and-merge, optional baselines, drift monitoring, and HITL handoff.}
 \label{fig:orchestration-flow}
 \end{figure}
 
 \subsection{Modeling Layer}
 The modeling layer encapsulates all topic model training, updating, and evaluation logic. It is organized around the role separation described in Section III: \bertopic operates as the primary model for discovery and deployment, while \lda and \nmf serve as comparative baselines.
 
-\subsubsection{BERTopic operational path}
-The \bertopic path implements a four-stage pipeline: (1)~sentence embedding via a pre-trained Sentence-Transformer (\texttt{all-MiniLM-L6-v2}) \cite{sentencetransformers}, (2)~dimensionality reduction via UMAP \cite{umap}, (3)~density-based clustering via HDBSCAN \cite{hdbscan}, and (4)~topic representation via CountVectorizer with class-based TF--IDF \cite{bertopic}. After training, the layer extracts topic metadata (identifiers, top words, sizes, custom labels) and persists document-level topic assignments with confidence scores. Optional LLM-assisted label generation via a local Ollama endpoint can augment topic descriptors with natural-language summaries.
+\subsubsection{BERTopic modeling pipeline}
+Figure~\ref{fig:modeling-layer} follows the official BERTopic \emph{modularity} illustration \cite{bertopic}: each pipeline stage is a swappable component---embeddings (e.g., SBERT, SpaCy, Hugging Face Transformers), dimensionality reduction (UMAP, PCA, truncated SVD), clustering (HDBSCAN, $k$-means, BIRCH), document-term extraction (CountVectorizer and alternatives), class-based TF--IDF variants (including BM25-style or normalized weighting), and optional representation layers (e.g., KeyBERT, MMR, or generative relabeling). Example vertical stacks in the figure show that valid pipelines are \emph{compositions} of one block per row, not a single fixed recipe. The present system instantiates one such stack aligned with short-text semantic clustering: a pre-trained Sentence-Transformer (\texttt{all-MiniLM-L6-v2}) \cite{sentencetransformers}, UMAP \cite{umap}, HDBSCAN \cite{hdbscan}, CountVectorizer, and class-based TF--IDF \cite{bertopic}. After training, the layer extracts topic metadata (identifiers, top words, sizes, custom labels) and persists document-level topic assignments with confidence scores. Optional LLM-assisted label generation via a local Ollama endpoint can augment topic descriptors with natural-language summaries.
 
 \subsubsection{Online update via train-and-merge}
 When a deployed model $\mathcal{M}_{t-1}$ already exists, the modeling layer does not retrain on all historical data. Instead, it trains a fresh model $\mathcal{F}_t$ on the new batch $\mathcal{B}_t$, then invokes \texttt{BERTopic.merge\_models} with a configurable similarity threshold $\tau$ to produce the updated model $\mathcal{M}_t$. Before merging, the previous model is archived to a versioned directory, enabling rollback. After merging, document assignments are recomputed using the merged model's \texttt{transform} method, and a cumulative corpus file is maintained for fair baseline comparison.
@@ -155,14 +155,9 @@ After each model update, the system extracts explicit topic metadata for every n
 
 \begin{figure}[t]
 \centering
-\fbox{\parbox{0.92\columnwidth}{\centering
-\vspace{0.75cm}
-Placeholder for modeling layer diagram.\\
-Show: BERTopic path (embed $\rightarrow$ UMAP $\rightarrow$ HDBSCAN $\rightarrow$ c-TF-IDF $\rightarrow$ merge)\\
-in parallel with LDA and NMF baseline branches.\\
-Annotate shared corpus, harmonized topic count, and metrics output.
-\vspace{0.75cm}}}
-\caption{Modeling layer: operational BERTopic path and baseline branches.}
+% Source: \texttt{figures/modularity.svg} (BERTopic documentation modularity diagram); rasterized to PNG.
+\includegraphics[width=1.0\columnwidth,height=0.38\textheight,keepaspectratio]{figures/fig3-bertopic-stack.png}
+\caption{\bertopic modularity: interchangeable blocks per stage (embeddings through c-TF--IDF and optional representation layers) and example composed pipelines; this work uses the Sentence-Transformer--UMAP--HDBSCAN--CountVectorizer--c-TF--IDF stack \cite{bertopic}.}
 \label{fig:modeling-layer}
 \end{figure}
 
@@ -205,19 +200,6 @@ where $\mathcal{K}_t$ is the set of non-outlier topic identifiers in $\mathcal{M
 \subsubsection{Alert generation and severity}
 Each drift signal is compared against configurable thresholds organized into three severity tiers (low, medium, high). When a signal exceeds its threshold, a timestamped alert is generated and persisted. Alerts carry topic-level granularity for centroid and keyword signals and system-level granularity for prevalence and lifecycle signals. This threshold-based design allows analysts to prioritize inspection effort based on signal severity rather than reviewing all topics after every update.
 
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.92\columnwidth}{\centering
-\vspace{0.75cm}
-Placeholder for drift detection flow diagram.\\
-Show: Load $\mathcal{M}_{t-1}$ and $\mathcal{M}_t$ $\rightarrow$ Prevalence TVD\\
-$\rightarrow$ Centroid Shift $\rightarrow$ Keyword JSD $\rightarrow$ Topic Birth/Death\\
-$\rightarrow$ Threshold Comparison $\rightarrow$ Alert Generation $\rightarrow$ Persist Alerts.
-\vspace{0.75cm}}}
-\caption{Drift detection pipeline: four signals computed between consecutive model states.}
-\label{fig:drift-pipeline}
-\end{figure}
-
 \subsection{Human-in-the-Loop Governance Layer}
 Automated topic modeling produces topic structures that are statistically derived but not always analytically satisfactory. The governance layer addresses this by enabling analyst-driven interventions that are version-controlled and auditable, forming a feedback path from the interaction layer back into the deployed model state.
 
@@ -232,18 +214,6 @@ Every governance mutation (relabel, merge) and every pipeline-driven model updat
 
 \subsubsection{Implementation maturity}
 Topic splitting is exposed as an API endpoint but does not yet implement full semantic re-clustering. In its current form, the split interface records the analyst's intent and archives metadata, but it does not automatically discover coherent sub-topics within the source topic. This limitation is acknowledged as a validity boundary.
-
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.92\columnwidth}{\centering
-\vspace{0.75cm}
-Placeholder for HITL governance diagram or screenshot.\\
-Show: Relabel / Merge operations $\rightarrow$ model re-save $\rightarrow$\\
-version archive $\rightarrow$ audit log entry $\rightarrow$ next merge cycle.
-\vspace{0.75cm}}}
-\caption{Human-in-the-loop governance workflow within the architecture.}
-\label{fig:hitl}
-\end{figure}
 
 \subsection{Complete Pipeline Algorithm}
 Figure~\ref{fig:algorithm} consolidates the full system behavior for a single execution cycle into a unified pseudocode representation. The algorithm integrates ingestion, the seed-or-merge modeling decision, baseline comparison, drift computation with explicit references to the formal metrics defined in Eqs.~(\ref{eq:tvd})--(\ref{eq:lifecycle}), alert generation, and state persistence.
@@ -287,19 +257,6 @@ The API is implemented in FastAPI and organized into versioned resource groups t
 
 A significant architectural benefit of this design is \emph{consumer independence}. The dashboard, described in the following subsection, communicates with the serving layer exclusively through HTTP requests. However, the same API contracts are equally available to external scripts, automated monitoring agents, or alternative front-end applications. This decoupling also simplifies deployment: the backend and frontend are packaged as separate Docker containers orchestrated through Docker Compose, permitting independent scaling and lifecycle management.
 
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.92\columnwidth}{\centering
-\vspace{0.75cm}
-Placeholder for serving layer diagram.\\
-Show: FastAPI backend with functional resource groups\\
-(topics, trends, alerts, inference, HITL, metrics)\\
-serving the Streamlit dashboard and potential external consumers.
-\vspace{0.75cm}}}
-\caption{Serving layer: RESTful API mediating access between modeling outputs and consumer applications.}
-\label{fig:serving-layer}
-\end{figure}
-
 \subsection{Interaction Layer}
 The interaction layer is a multi-page Streamlit dashboard that provides analyst-facing views over the system's outputs. Each page corresponds to a distinct analytical concern:
 
@@ -314,18 +271,6 @@ The interaction layer is a multi-page Streamlit dashboard that provides analyst-
 \end{enumerate}
 
 The dashboard communicates exclusively with the serving layer through HTTP requests to the FastAPI backend. This separation ensures that no modeling or storage logic is embedded in the front-end, which improves maintainability and permits the API to serve additional consumers (e.g., automated alerting scripts or external dashboards) without modification.
-
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.92\columnwidth}{\centering
-\vspace{0.75cm}
-Placeholder for dashboard screenshot collage or wireframe.\\
-Show key pages: Dashboard overview, Topic Drilldown, Drift Alerts,\\
-HITL Editor, Inference, and Model Benchmarking.
-\vspace{0.75cm}}}
-\caption{Interaction layer: Streamlit dashboard pages.}
-\label{fig:dashboard-pages}
-\end{figure}
 
 \subsection{Persistence and Data Flow}
 Across all layers, persistence is managed through a shared file-system store organized by dataset name. Key artifacts include: processed Parquet files per batch, serialized \bertopic model checkpoints (current and previous), cumulative corpus JSON, topic metadata JSON, document assignment CSVs, drift alert CSVs, \hitl audit logs, and per-model metric histories. MLflow additionally maintains a parallel experiment-tracking store for cross-run comparison.
