@@ -15,6 +15,8 @@
 \usepackage{hyperref}
 \usepackage{balance}
 \usepackage{xspace}
+\usepackage{algorithm}
+\renewcommand{\thealgorithm}{\Roman{algorithm}}
 
 \hypersetup{hidelinks}
 
@@ -66,7 +68,7 @@ The main contributions of this project are as follows:
     \item A governed \hitl workflow with audit logs, model version history, and rollback support.
 \end{enumerate}
 
-The remainder of this paper is organized as follows. Section~II reviews related work, including the baseline models. Section~III presents the system overview and scope. Section~IV describes the complete system architecture---orchestration, modeling, drift detection with formal definitions, human-in-the-loop governance, serving, and interaction---together with the unified pipeline algorithm. Section~V presents experimental evaluation: corpora, preprocessing, evidence protocol, and benchmark results. Section~VI summarizes strengths and limitations of the implementation. Section~VII concludes.
+The remainder of this paper is organized as follows. Section~II reviews related work, including the baseline models. Section~III presents the system overview and scope. Section~IV describes the complete system architecture---orchestration, modeling, drift detection with formal definitions, human-in-the-loop governance, serving, and interaction---together with the unified pipeline algorithm. Section~V presents experimental evaluation: corpora, preprocessing, experimental setup, and benchmark results. Section~VI summarizes strengths and limitations of the implementation. Section~VII concludes.
 
 \section{Related Work}
 \subsection{Latent Dirichlet Allocation}
@@ -118,7 +120,7 @@ Figure~\ref{fig:architecture} presents the high-level layered architecture. The 
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.88\columnwidth,height=0.42\textheight,keepaspectratio]{figures/fig1.png}
+\includegraphics[width=1.0\columnwidth,height=0.42\textheight,keepaspectratio]{figures/Fig1.drawio.pdf}
 \caption{Layered architecture of the online topic monitoring platform.}
 \label{fig:architecture}
 \end{figure}
@@ -133,7 +135,7 @@ This design keeps the system batch-recurring: windows are processed in order, co
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=1\columnwidth,height=0.48\textheight,keepaspectratio]{figures/Fig2-orchestration.png}
+\includegraphics[width=1\columnwidth,height=0.48\textheight,keepaspectratio]{figures/Fig2.drawio (3).pdf}
 \caption{Orchestration strategy: trigger and windowing, data pipeline, BERTopic train-and-merge, optional baselines, drift monitoring, and HITL handoff.}
 \label{fig:orchestration-flow}
 \end{figure}
@@ -216,12 +218,12 @@ Every governance mutation (relabel, merge) and every pipeline-driven model updat
 Topic splitting is exposed as an API endpoint but does not yet implement full semantic re-clustering. In its current form, the split interface records the analyst's intent and archives metadata, but it does not automatically discover coherent sub-topics within the source topic. This limitation is acknowledged as a validity boundary.
 
 \subsection{Complete Pipeline Algorithm}
-Figure~\ref{fig:algorithm} consolidates the full system behavior for a single execution cycle into a unified pseudocode representation. The algorithm integrates ingestion, the seed-or-merge modeling decision, baseline comparison, drift computation with explicit references to the formal metrics defined in Eqs.~(\ref{eq:tvd})--(\ref{eq:lifecycle}), alert generation, and state persistence.
+Algorithm~\ref{alg:batch-pipeline} consolidates the full system behavior for a single execution cycle into a unified pseudocode representation. It integrates ingestion, the seed-or-merge modeling decision, baseline comparison, drift computation with explicit references to the formal metrics defined in Eqs.~(\ref{eq:tvd})--(\ref{eq:lifecycle}), alert generation, and state persistence.
 
-\begin{figure}[t]
+\begin{algorithm}[t]
 \centering
 \fbox{\parbox{0.95\columnwidth}{\footnotesize\ttfamily
-\textbf{Algorithm~1}: Batch-Recurring Online Topic Monitoring\\[2pt]
+\textbf{Batch-Recurring Online Topic Monitoring Algorithm}\\[2pt]
 \textbf{Input}: time window $[t_s, t_e)$, config $C$\\
 \textbf{Output}: updated model $\mathcal{M}_t$, metrics, alerts\\[4pt]
 1.\enspace $\mathcal{B}_t \leftarrow$ \textrm{Ingest and preprocess documents in} $[t_s, t_e)$\\
@@ -246,9 +248,9 @@ Figure~\ref{fig:algorithm} consolidates the full system behavior for a single ex
 20. \textrm{Log all metrics to MLflow; update processing state}\\
 21. \textrm{Expose results via API for dashboard consumption}
 }}
-\caption{Complete pipeline algorithm for one execution cycle. Drift steps (lines 14--17) reference the formal definitions in Section~IV-D.}
-\label{fig:algorithm}
-\end{figure}
+\caption{Complete pipeline for one execution cycle. Drift steps (lines 14--17) reference the formal definitions in Section~IV-D.}
+\label{alg:batch-pipeline}
+\end{algorithm}
 
 \subsection{Serving Layer}
 In a conventional research prototype, model outputs are consumed directly within the same process that produced them. This tight coupling limits reusability and makes it difficult to separate analytical concerns from training logic. The present system addresses this limitation by introducing a dedicated serving layer that mediates all access to model outputs, evaluation metrics, drift signals, and governance operations through a stateless RESTful API.
@@ -288,6 +290,9 @@ Quantitative benchmarks summarize five consecutive windows on each corpus, trans
 \subsection{Preprocessing}
 Preprocessing is profile-specific prior to ingestion into the pipeline. Support-style text uses aggressive noise removal (handles, URLs, boilerplate, punctuation clutter); news-style text uses lighter normalization to preserve headline and body phrasing. Empty and duplicate documents are dropped; minimum length thresholds reduce degenerate inputs. Document and batch identifiers are emitted for alignment with assignments, drift logs, and dashboard views. Raw corpora may not accompany the repository snapshot; evaluation assumes locally provisioned data as in deployment configuration.
 
+\subsection{Experimental setup}
+The reported benchmarks use the following settings unless noted otherwise. \bertopic uses the \texttt{all-MiniLM-L6-v2} sentence encoder, UMAP with five latent dimensions, five neighbors, cosine metric, and $\mathrm{min\_dist}=0$; HDBSCAN with minimum cluster size three, minimum samples two, and Euclidean metric; a bag-of-words representation with unigrams and bigrams, minimum document frequency one, maximum document frequency $1.0$, and ten keywords per topic; and batch-to-batch fusion via \texttt{merge\_models} with minimum inter-topic similarity $0.7$. Documents shorter than five tokens after profile-specific cleaning are discarded. Baselines consume the same cumulative corpus and matched $K$ (non-outlier \bertopic topics): LDA with ten passes and 200 iterations per pass; NMF with 400 iterations, $\alpha_W=\alpha_H=0.1$, and TF--IDF restricted to 5000 terms. Consecutive-model drift monitoring uses total-variation prevalence $0.25$, centroid shift $0.55$, keyword Jensen--Shannon divergence $0.4$, and structural limits of ten new topics and six disappeared topics, plus low, medium, and high graduated bands on the same continuous signals. Optional short natural-language topic names are generated with Gemma~3~1B at temperature $0.2$; this step does not affect the tabulated coherence, diversity, or silhouette scores reported below.
+
 \subsection{Results}
 All models are evaluated under a common procedure: we report $C_v$ coherence, top-term diversity, and silhouette computed in each model's native representation (silhouette is interpreted qualitatively across families). Topic count $K$ is recorded per window for \bertopic and for baselines when aligned. \lda and \nmf use the same cumulative corpus as \bertopic and, in automatic mode, the same $K$ as non-outlier \bertopic topics as batches accrue.
 
@@ -323,8 +328,6 @@ All models are evaluated under a common procedure: we report $C_v$ coherence, to
 \end{table*}
 
 Table~\ref{tab:bench-batches} gives batch-level scores; the last row of each block is the mean over its five windows. Aggregating those means, \bertopic achieves the strongest $C_v$ and diversity on both corpora; \nmf attains the highest mean silhouette on Twitter but lower $C_v$ than \bertopic there, and on AG News ranks second on $C_v$ without surpassing \bertopic. \lda shows the weakest mean $C_v$ in both regimes but higher diversity on AG News than on Twitter. In the first Twitter window only, \nmf used $K{=}21$ while \bertopic and \lda used $K{=}35$; later windows align $K$, and a stricter study would re-run mismatched cases under common $K$. Overall, the evidence supports \bertopic as the deployed model, with the caveat that silhouette must not substitute for coherence when rankings disagree. Negative \lda silhouette on some Twitter windows indicates weak separation in that representation for those batches.
-
-The reported benchmarks use the following settings unless noted otherwise. \bertopic uses the \texttt{all-MiniLM-L6-v2} sentence encoder, UMAP with five latent dimensions, five neighbors, cosine metric, and $\mathrm{min\_dist}=0$; HDBSCAN with minimum cluster size three, minimum samples two, and Euclidean metric; a bag-of-words representation with unigrams and bigrams, minimum document frequency one, maximum document frequency $1.0$, and ten keywords per topic; and batch-to-batch fusion via \texttt{merge\_models} with minimum inter-topic similarity $0.7$. Documents shorter than five tokens after profile-specific cleaning are discarded. Baselines consume the same cumulative corpus and matched $K$ (non-outlier \bertopic topics): LDA with ten passes and 200 iterations per pass; NMF with 400 iterations, $\alpha_W=\alpha_H=0.1$, and TF--IDF restricted to 5000 terms. Consecutive-model drift monitoring uses total-variation prevalence $0.25$, centroid shift $0.55$, keyword Jensen--Shannon divergence $0.4$, and structural limits of ten new topics and six disappeared topics, plus low, medium, and high graduated bands on the same continuous signals. Optional short natural-language topic names are generated with Gemma~3~1B at temperature $0.2$; this step is orthogonal to the benchmark metrics in Table~\ref{tab:bench-batches}.
 
 \section{Strengths and Limitations}
 The main strength is end-to-end systems integration: topic discovery is paired with Prefect orchestration, versioned fusion via \bertopic's \texttt{merge\_models} (minimum inter-topic similarity $0.7$ in our runs), multi-signal drift between deployments, matched \lda/\nmf benchmarking on the same cumulative corpus, REST serving, and a Streamlit analyst experience. The evaluation in Section~V supports that design: on both corpora, \bertopic achieves the strongest mean $C_v$ and diversity in Table~\ref{tab:bench-batches}. Drift is expressed through prevalence shift, centroid motion, keyword Jensen--Shannon divergence, and topic birth/death counts with graded severities; governed \hitl (relabel, merge, rollback) is exposed through audited APIs; optional Gemma~3~1B labels via Ollama improve readability without changing the tabulated metrics.

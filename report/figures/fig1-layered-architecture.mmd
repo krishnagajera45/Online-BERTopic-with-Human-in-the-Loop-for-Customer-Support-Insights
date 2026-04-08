@@ -1,29 +1,29 @@
 %% Figure: layered architecture (matches main.tex Figure~\ref{fig:architecture})
 %% Render: npx @mermaid-js/mermaid-cli -i fig1-layered-architecture.mmd -o fig1-layered-architecture.svg
 %% Or paste at https://mermaid.live
-%%{init: {"theme": "base", "flowchart": {"curve": "basis", "padding": 22, "nodeSpacing": 45, "rankSpacing": 55}}}%%
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "fontFamily": "Arial, Helvetica, sans-serif", "lineHeight": "1.45"}, "flowchart": {"curve": "basis", "padding": 36, "nodeSpacing": 120, "rankSpacing": 84, "useMaxWidth": false, "htmlLabels": true}}}%%
 flowchart TB
-    subgraph L1["Human-in-the-loop · interaction"]
+    subgraph L1["Human-in-the-loop · interaction          "]
         direction TB
         H["Streamlit · relabel · merge · rollback · audit"]
     end
+    subgraph L2["Serving                                      "]
 
-    subgraph L2["Serving"]
         direction TB
         S["FastAPI · inference · topics · metrics & drift alerts"]
     end
 
-    subgraph L3["Orchestration · Prefect DAG"]
+    subgraph L3["Orchestration · Prefect DAG                 "]
         direction TB
 
-        DC("⏱ Data clock — schedule\nfixes batch window tₛ … tₑ · batch id")
+        DC("⏱ Data clock - schedule<br/>fixes batch window ts ... te · batch id · source · trigger")
         style DC fill:#e8f5e9,stroke:#1b5e20,stroke-width:2.5px,color:#1b1b1b
 
         subgraph PIPE["Per-window pipeline"]
             direction LR
-            M["Modeling\nBERTopic train/merge · LDA/NMF baselines"]
-            D["Drift detection\nmulti-signal alerts"]
-            P["Persistence\ncheckpoints · MLflow · stores"]
+            M["Modeling<br/>BERTopic train/merge · LDA/NMF baselines"]
+            D["Drift detection<br/>multi-signal alerts"]
+            P["Persistence<br/>checkpoints · MLflow · stores"]
         end
 
         DC --> M
@@ -34,12 +34,12 @@ flowchart TB
     L1 <-->|"HTTP / JSON"| L2
     L2 <-->|"loads state · writes governance"| L3
 
-    style L1 fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#111
-    style L2 fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px,color:#111
-    style L3 fill:#fff8e1,stroke:#e65100,stroke-width:2px,color:#111
-    style PIPE fill:#fafafa,stroke:#9e9e9e,stroke-width:1.5px,color:#111
-    style H fill:#fce4ec,stroke:#880e4f,stroke-width:1px
-    style S fill:#e1f5fe,stroke:#01579b,stroke-width:1px
-    style M fill:#fff3e0,stroke:#ef6c00,stroke-width:1px
-    style D fill:#fce4ec,stroke:#ad1457,stroke-width:1px
-    style P fill:#e8eaf6,stroke:#283593,stroke-width:1px
+    style L1 fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2.5px,color:#111
+    style L2 fill:#e3f2fd,stroke:#0d47a1,stroke-width:2.5px,color:#111
+    style L3 fill:#fff8e1,stroke:#e65100,stroke-width:2.5px,color:#111
+    style PIPE fill:#fafafa,stroke:#9e9e9e,stroke-width:2px,color:#111
+    style H fill:#fce4ec,stroke:#880e4f,stroke-width:1.8px,color:#111
+    style S fill:#e1f5fe,stroke:#01579b,stroke-width:1.8px,color:#111
+    style M fill:#fff3e0,stroke:#ef6c00,stroke-width:1.8px,color:#111
+    style D fill:#fce4ec,stroke:#ad1457,stroke-width:1.8px,color:#111
+    style P fill:#e8eaf6,stroke:#283593,stroke-width:1.8px,color:#111
