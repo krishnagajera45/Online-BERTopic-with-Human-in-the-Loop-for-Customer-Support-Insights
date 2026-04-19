@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import shutil
+import time
 
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
@@ -268,29 +269,35 @@ def extract_topic_metadata_task(
     window_start: str,
     window_end: str,
     config: Any = None
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], float]:
     """
     Extract topic metadata from model.
-    
+
+    When Ollama labeling is enabled, wall time for those HTTP calls is tracked
+    separately so benchmarks can compare BERTopic training to LDA/NMF without
+    mixing in optional LLM latency.
+
     Args:
         model: BERTopic model
         batch_id: Batch identifier
         window_start: Window start date
         window_end: Window end date
         config: Configuration object
-        
+
     Returns:
-        List of topic metadata dictionaries
+        (topics_metadata, ollama_labeling_seconds)
     """
     logger = get_run_logger()
     logger.info("Extracting topic metadata")
-    
+
+    ollama_labeling_seconds = 0.0
+
     if config is None:
         config = load_config()
-    
+
     topic_info = model.get_topic_info()
     topics_metadata = []
-    
+
     for _, row in topic_info.iterrows():
         topic_id = int(row['Topic'])
         
@@ -319,6 +326,7 @@ def extract_topic_metadata_task(
             except Exception:
                 examples = []
 
+            _t0 = time.perf_counter()
             result = generate_topic_label(
                 base_url=config.ollama.base_url,
                 model=config.ollama.model,
@@ -330,6 +338,7 @@ def extract_topic_metadata_task(
                 timeout_seconds=config.ollama.timeout_seconds,
                 examples_limit=config.ollama.examples_limit
             )
+            ollama_labeling_seconds += time.perf_counter() - _t0
             gpt_label = result.get("label")
             gpt_summary = result.get("summary")
 
@@ -351,9 +360,11 @@ def extract_topic_metadata_task(
             'gpt_summary': gpt_summary
         }
         topics_metadata.append(topic_metadata)
-    
+
     logger.info(f"Extracted metadata for {len(topics_metadata)} topics")
-    return topics_metadata
+    if ollama_labeling_seconds > 0:
+        logger.info(f"Ollama labeling time (sum over topics): {ollama_labeling_seconds:.2f}s")
+    return topics_metadata, ollama_labeling_seconds
 
 
 @task(name="save-topic-metadata", retries=1)
@@ -385,18 +396,19 @@ def train_seed_model_task(
     batch_id: str,
     window_start: str,
     window_end: str
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
     """
     Train initial seed BERTopic model (orchestrates granular tasks).
-    
+
     Args:
         documents: List of document texts
         batch_id: Batch identifier
         window_start: Window start date
         window_end: Window end date
-        
+
     Returns:
-        Tuple of (topics, probabilities)
+        Tuple of (topics, probabilities, timing_dict).
+        timing_dict contains ``ollama_labeling_seconds`` (0 if Ollama disabled).
     """
     logger = get_run_logger()
     logger.info(f"Training seed model (orchestrating granular tasks)")
@@ -417,16 +429,16 @@ def train_seed_model_task(
     
     # Step 4: Extract metadata (task)
     logger.info("Step 4: Extracting topic metadata")
-    topics_metadata = extract_topic_metadata_task(
+    topics_metadata, ollama_sec = extract_topic_metadata_task(
         model, batch_id, window_start, window_end, config
     )
-    
+
     # Step 5: Save metadata (task)
     logger.info("Step 5: Saving topic metadata")
     save_topic_metadata_task(topics_metadata)
-    
+
     logger.info(f"Seed model trained successfully with {len(set(topics))} topics")
-    return topics, probs
+    return topics, probs, {"ollama_labeling_seconds": float(ollama_sec)}
 
 
 @task(name="update_model_online", retries=1)
@@ -435,18 +447,18 @@ def update_model_online_task(
     batch_id: str,
     window_start: str,
     window_end: str
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
     """
     Update model with new batch (online learning) - orchestrates granular tasks.
-    
+
     Args:
         documents: New documents
         batch_id: Batch identifier
         window_start: Window start
         window_end: Window end
-        
+
     Returns:
-        Tuple of (topics, probabilities)
+        Tuple of (topics, probabilities, timing_dict with ``ollama_labeling_seconds``).
     """
     logger = get_run_logger()
     logger.info(f"Updating model online (orchestrating granular tasks)")
@@ -482,16 +494,16 @@ def update_model_online_task(
     
     # Step 6: Extract metadata (task)
     logger.info("Step 6: Extracting topic metadata")
-    topics_metadata = extract_topic_metadata_task(
+    topics_metadata, ollama_sec = extract_topic_metadata_task(
         model, batch_id, window_start, window_end, config
     )
-    
+
     # Step 7: Save metadata (task)
     logger.info("Step 7: Saving topic metadata")
     save_topic_metadata_task(topics_metadata)
-    
+
     logger.info(f"Model updated successfully with {len(set(topics))} topics")
-    return topics, probs
+    return topics, probs, {"ollama_labeling_seconds": float(ollama_sec)}
 
 
 @task(name="merge-models", retries=1)
@@ -569,7 +581,7 @@ def train_batch_and_merge_models_task(
     window_start: str,
     window_end: str,
     min_similarity: Optional[float] = None
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
     """
     Train fresh model on batch and merge with base model (recommended approach).
     
@@ -589,7 +601,7 @@ def train_batch_and_merge_models_task(
         min_similarity: Similarity threshold for merging topics
         
     Returns:
-        Tuple of (topics, probabilities)
+        Tuple of (topics, probabilities, timing_dict with ``ollama_labeling_seconds``).
     """
     logger = get_run_logger()
     logger.info(f"Training batch model and merging with base (batch retrain + merge_models)")
@@ -656,7 +668,7 @@ def train_batch_and_merge_models_task(
 
     # Extract and save topic metadata
     logger.info("Extracting and saving topic metadata")
-    topics_metadata = extract_topic_metadata_task(
+    topics_metadata, ollama_sec = extract_topic_metadata_task(
         model_to_save, batch_id, window_start, window_end, config
     )
     save_topic_metadata_task(topics_metadata)
@@ -665,7 +677,7 @@ def train_batch_and_merge_models_task(
     logger.info("Getting final topic assignments from merged model")
     final_topics, final_probs = transform_documents_task(model_to_save, documents)
 
-    return final_topics, final_probs
+    return final_topics, final_probs, {"ollama_labeling_seconds": float(ollama_sec)}
 
 
 @task(name="archive_model")

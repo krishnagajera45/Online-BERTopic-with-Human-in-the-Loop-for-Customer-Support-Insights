@@ -40,7 +40,7 @@ def nmf_comparison_flow(
     2. Train NMF with ``num_topics`` components
     3. Compute coherence (C_v), diversity, and silhouette score
     4. Extract per-topic metadata
-    5. Save metrics to ``outputs/metrics/nmf_metrics.json``
+    5. Save metrics under ``config.storage.metrics_dir`` (e.g. ``outputs/{dataset}/metrics/nmf_metrics.json``)
 
     Args:
         documents   : Document texts (same cumulative corpus as BERTopic / LDA).

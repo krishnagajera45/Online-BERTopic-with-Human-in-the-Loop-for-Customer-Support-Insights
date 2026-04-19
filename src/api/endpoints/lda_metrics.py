@@ -6,6 +6,8 @@ from pathlib import Path
 from datetime import datetime
 
 from src.utils import setup_logger
+from src.utils.config import load_config
+from src.utils.metrics_paths import lda_metrics_path, read_json_first_existing
 
 logger = setup_logger(__name__, "logs/api.log")
 
@@ -13,12 +15,8 @@ router = APIRouter()
 
 
 def _load_lda_metrics() -> Dict[str, Any]:
-    """Load LDA metrics from file."""
-    metrics_path = Path("outputs/metrics/lda_metrics.json")
-    if not metrics_path.exists():
-        return {}
-    with open(metrics_path, 'r') as f:
-        return json.load(f)
+    """Load LDA metrics from dataset-scoped path, with legacy ``outputs/metrics`` fallback."""
+    return read_json_first_existing(lda_metrics_path(), "lda_metrics.json")
 
 
 @router.get("/", response_model=Dict[str, Any])
@@ -115,10 +113,10 @@ async def get_model_comparison():
         bt_data = _load_bertopic_metrics()
         bertopic_metrics = bt_data.get("latest", bt_data) if bt_data else {}
         
-        # Also load document count from topics metadata
+        # Also load document count from topics metadata (dataset-scoped)
         total_documents = 0
-        topics_path = Path("outputs/topics/topics_metadata.json")
-        
+        topics_path = Path(load_config().storage.topics_metadata_path)
+
         if topics_path.exists():
             try:
                 with open(topics_path, 'r') as f:
@@ -168,25 +166,24 @@ async def get_lda_topics():
         Dictionary with LDA topics
     """
     try:
-        metrics_path = Path("outputs/metrics/lda_metrics.json")
-        
-        if not metrics_path.exists():
+        metrics = _load_lda_metrics()
+        if not metrics:
             raise HTTPException(
                 status_code=404,
                 detail="LDA metrics not found. Run pipeline first."
             )
-        
-        with open(metrics_path, 'r') as f:
-            metrics = json.load(f)
-        
-        topics = metrics.get('topics', [])
-        
+
+        latest = metrics.get("latest") or metrics
+        topics = latest.get("topics", metrics.get("topics", []))
+        bid = latest.get("batch_id", metrics.get("batch_id"))
+        ts = latest.get("timestamp", metrics.get("timestamp"))
+
         logger.info(f"Retrieved {len(topics)} LDA topics")
         return {
             'num_topics': len(topics),
             'topics': topics,
-            'batch_id': metrics.get('batch_id'),
-            'timestamp': metrics.get('timestamp')
+            'batch_id': bid,
+            'timestamp': ts,
         }
         
     except HTTPException:

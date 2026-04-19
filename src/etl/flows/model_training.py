@@ -63,7 +63,7 @@ def model_training_flow(
         logger.info("Existing model found → Using batch retrain + merge_models approach")
         logger.info("This will train fresh on batch and merge with base (includes HITL changes)")
         
-        topics, probs = train_batch_and_merge_models_task(
+        topics, probs, _bt_timing = train_batch_and_merge_models_task(
             documents=documents,
             batch_id=batch_id,
             window_start=window_start,
@@ -73,7 +73,7 @@ def model_training_flow(
     else:
         # No model → Train seed model
         logger.info("No existing model found → Training seed model")
-        topics, probs = train_seed_model_task(
+        topics, probs, _bt_timing = train_seed_model_task(
             documents=documents,
             batch_id=batch_id,
             window_start=window_start,

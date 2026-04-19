@@ -6,6 +6,13 @@ from pathlib import Path
 from datetime import datetime
 
 from src.utils import setup_logger
+from src.utils.config import load_config
+from src.utils.metrics_paths import (
+    bertopic_metrics_path,
+    lda_metrics_path,
+    nmf_metrics_path,
+    read_json_first_existing,
+)
 
 logger = setup_logger(__name__, "logs/api.log")
 
@@ -15,28 +22,16 @@ router = APIRouter()
 # ── Internal loaders ──────────────────────────────────────────────────────────
 
 def _load_nmf_metrics() -> Dict[str, Any]:
-    """Load NMF metrics from disk."""
-    p = Path("outputs/metrics/nmf_metrics.json")
-    if not p.exists():
-        return {}
-    with open(p) as f:
-        return json.load(f)
+    """Load NMF metrics from dataset-scoped path, with legacy fallback."""
+    return read_json_first_existing(nmf_metrics_path(), "nmf_metrics.json")
 
 
 def _load_lda_metrics() -> Dict[str, Any]:
-    p = Path("outputs/metrics/lda_metrics.json")
-    if not p.exists():
-        return {}
-    with open(p) as f:
-        return json.load(f)
+    return read_json_first_existing(lda_metrics_path(), "lda_metrics.json")
 
 
 def _load_bertopic_metrics() -> Dict[str, Any]:
-    p = Path("outputs/metrics/bertopic_metrics.json")
-    if not p.exists():
-        return {}
-    with open(p) as f:
-        return json.load(f)
+    return read_json_first_existing(bertopic_metrics_path(), "bertopic_metrics.json")
 
 
 # ── Single-model endpoints ────────────────────────────────────────────────────
@@ -150,9 +145,9 @@ async def get_three_way_comparison():
         bt_raw = _load_bertopic_metrics()
         bt = bt_raw.get("latest", bt_raw) if bt_raw else {}
 
-        # Count total BERTopic documents from topics_metadata
+        # Count total BERTopic documents from dataset-scoped topics_metadata
         total_docs = 0
-        tp = Path("outputs/topics/topics_metadata.json")
+        tp = Path(load_config().storage.topics_metadata_path)
         if tp.exists():
             try:
                 with open(tp) as f:

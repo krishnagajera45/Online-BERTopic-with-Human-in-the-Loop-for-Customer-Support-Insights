@@ -1,6 +1,6 @@
 """Prefect tasks for LDA model training and evaluation."""
 from prefect import task, get_run_logger
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 from pathlib import Path
 import time
@@ -14,6 +14,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
+
+from src.utils.metrics_paths import lda_metrics_path, load_metrics_state_for_save
 
 # Ensure NLTK data is available
 try:
@@ -328,7 +330,7 @@ def extract_lda_metadata_task(
 @task(name="save-lda-metrics", retries=1)
 def save_lda_metrics_task(
     metrics: Dict[str, Any],
-    output_path: str = "outputs/metrics/lda_metrics.json"
+    output_path: Optional[str] = None,
 ) -> str:
     """
     Save LDA metrics to file. Appends per-batch metrics for temporal analysis.
@@ -337,27 +339,20 @@ def save_lda_metrics_task(
     
     Args:
         metrics: Dictionary with LDA metrics (must include batch_id)
-        output_path: Path to save metrics
+        output_path: Path to save metrics (default: ``config.storage.metrics_dir`` / lda_metrics.json)
         
     Returns:
         Path to saved file
     """
+    if output_path is None:
+        output_path = str(lda_metrics_path())
+
     logger = get_run_logger()
     logger.info(f"Saving LDA metrics to {output_path}")
-    
-    # Ensure directory exists
+
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    
-    # Load existing data
-    data = {"batches": [], "latest": {}}
-    if Path(output_path).exists():
-        try:
-            with open(output_path, 'r') as f:
-                data = json.load(f)
-            if "batches" not in data:
-                data["batches"] = []
-        except Exception:
-            data = {"batches": [], "latest": {}}
+
+    data = load_metrics_state_for_save(output_path, "lda_metrics.json")
     
     # Append this batch's metrics to history
     batch_id = metrics.get("batch_id")

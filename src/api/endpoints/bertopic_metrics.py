@@ -2,9 +2,8 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List
 import json
-from pathlib import Path
-
 from src.utils import setup_logger
+from src.utils.metrics_paths import bertopic_metrics_path, read_json_first_existing
 
 logger = setup_logger(__name__, "logs/api.log")
 
@@ -12,12 +11,8 @@ router = APIRouter()
 
 
 def _load_bertopic_metrics() -> Dict[str, Any]:
-    """Load BERTopic metrics from file, handling both legacy and new format."""
-    metrics_path = Path("outputs/metrics/bertopic_metrics.json")
-    if not metrics_path.exists():
-        return {}
-    with open(metrics_path, 'r') as f:
-        return json.load(f)
+    """Load BERTopic metrics from dataset-scoped path, with legacy ``outputs/metrics`` fallback."""
+    return read_json_first_existing(bertopic_metrics_path(), "bertopic_metrics.json")
 
 
 @router.get("/", response_model=Dict[str, Any])

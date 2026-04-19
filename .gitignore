@@ -90,3 +90,12 @@ report/main.fls
 .gitignore
 report/main.synctex.gz
 report/main.out
+sdsu-white-background-powerpoint-updated.pptx
+~$Defense_Presentation_BERTopic_SDSU.pptx
+data/processed/twitter/*
+
+Defense_Presentation_BERTopic_SDSU.pptx
+~$sdsu-white-background-powerpoint-updated.pptx
+.gitignore
+Results-SS/*
+

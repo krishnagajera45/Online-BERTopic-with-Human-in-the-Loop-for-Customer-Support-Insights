@@ -1,6 +1,6 @@
 """Tasks for calculating BERTopic evaluation metrics."""
 from prefect import task, get_run_logger
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 from pathlib import Path
 import json
@@ -11,6 +11,7 @@ from sklearn.metrics import silhouette_score
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from src.utils import load_config
+from src.utils.metrics_paths import bertopic_metrics_path, load_metrics_state_for_save
 
 
 @task(name="calculate-bertopic-coherence", retries=1)
@@ -245,7 +246,7 @@ def calculate_bertopic_silhouette_task(
 @task(name="save-bertopic-metrics", retries=1)
 def save_bertopic_metrics_task(
     metrics: Dict[str, Any],
-    output_path: str = "outputs/metrics/bertopic_metrics.json"
+    output_path: Optional[str] = None,
 ) -> str:
     """
     Save BERTopic metrics to file. Appends per-batch metrics for temporal analysis.
@@ -254,31 +255,25 @@ def save_bertopic_metrics_task(
     
     Args:
         metrics: Dictionary with BERTopic metrics (must include batch_id)
-        output_path: Path to save metrics
+        output_path: Path to save metrics (default: ``config.storage.metrics_dir`` / bertopic_metrics.json)
         
     Returns:
         Path to saved file
     """
+    if output_path is None:
+        output_path = str(bertopic_metrics_path())
+
     logger = get_run_logger()
     logger.info(f"Saving BERTopic metrics to {output_path}")
     
     # Ensure directory exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    
-    # Load existing data
-    data = {"batches": [], "latest": {}}
-    if Path(output_path).exists():
-        try:
-            with open(output_path, 'r') as f:
-                data = json.load(f)
-            if "batches" not in data:
-                data["batches"] = []
-        except Exception:
-            data = {"batches": [], "latest": {}}
-    
+
+    data = load_metrics_state_for_save(output_path, "bertopic_metrics.json")
+
     # Append this batch's metrics to history (avoid duplicates by batch_id)
     batch_id = metrics.get("batch_id")
-    batch_record = {
+    batch_record: Dict[str, Any] = {
         "batch_id": batch_id,
         "coherence_c_v": metrics.get("coherence_c_v", 0.0),
         "diversity": metrics.get("diversity", 0.0),
@@ -287,6 +282,12 @@ def save_bertopic_metrics_task(
         "timestamp": metrics.get("timestamp", ""),
         "training_time_seconds": metrics.get("training_time_seconds", 0.0),
     }
+    excl = metrics.get("training_time_seconds_excl_ollama")
+    if excl is not None:
+        batch_record["training_time_seconds_excl_ollama"] = excl
+    oll = metrics.get("ollama_labeling_seconds")
+    if oll is not None:
+        batch_record["ollama_labeling_seconds"] = oll
     
     # Replace existing batch record if same batch_id, else append
     existing_ids = [b.get("batch_id") for b in data["batches"]]

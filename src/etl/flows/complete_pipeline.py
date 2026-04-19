@@ -175,11 +175,20 @@ def complete_pipeline_flow(
                 with open(metrics_path, 'r') as f:
                     bt_data = json.load(f)
                 latest = bt_data.get("latest", bt_data)
+                _m = {}
                 if latest.get("coherence_c_v") is not None:
-                    mlflow_logger.log_metrics({
-                        'bertopic_coherence_c_v': latest.get('coherence_c_v', 0),
-                        'bertopic_silhouette_score': latest.get('silhouette_score', 0)
-                    })
+                    _m['bertopic_coherence_c_v'] = latest.get('coherence_c_v', 0)
+                    _m['bertopic_silhouette_score'] = latest.get('silhouette_score', 0)
+                if latest.get('training_time_seconds_excl_ollama') is not None:
+                    _m['bertopic_training_seconds_excl_ollama'] = float(
+                        latest['training_time_seconds_excl_ollama']
+                    )
+                if latest.get('ollama_labeling_seconds') is not None:
+                    _m['bertopic_ollama_labeling_seconds'] = float(
+                        latest['ollama_labeling_seconds']
+                    )
+                if _m:
+                    mlflow_logger.log_metrics(_m)
         except Exception:
             pass
         

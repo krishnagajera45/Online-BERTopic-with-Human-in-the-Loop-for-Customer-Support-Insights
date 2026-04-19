@@ -66,9 +66,10 @@ def bertopic_modeling_flow(
     train_start = time.time()
     model_exists = Path(config.storage.current_model_path).exists()
     
+    bt_timing = {"ollama_labeling_seconds": 0.0}
     if model_exists:
         logger.info("📦 Existing model found → Batch retrain + merge_models")
-        topics, probs = train_batch_and_merge_models_task(
+        topics, probs, bt_timing = train_batch_and_merge_models_task(
             documents=documents,
             batch_id=batch_id,
             window_start=window_start,
@@ -76,15 +77,17 @@ def bertopic_modeling_flow(
         )
     else:
         logger.info("🌱 No model found → Training seed model")
-        topics, probs = train_seed_model_task(
+        topics, probs, bt_timing = train_seed_model_task(
             documents=documents,
             batch_id=batch_id,
             window_start=window_start,
             window_end=window_end
         )
-    
+
     training_duration = time.time() - train_start
-    logger.info(f"✅ Model training complete ({training_duration:.2f}s)")
+    ollama_sec = float(bt_timing.get("ollama_labeling_seconds", 0.0))
+    train_excl_ollama = max(0.0, training_duration - ollama_sec)
+    logger.info(f"✅ Model training complete ({training_duration:.2f}s wall; Ollama labeling {ollama_sec:.2f}s; excl. Ollama {train_excl_ollama:.2f}s)")
     logger.info(f"   Topics discovered: {len(set(topics))}")
     
     # ────────────────────────────────────────────────────────────────────
@@ -213,7 +216,12 @@ def bertopic_modeling_flow(
             'diversity': diversity,
             'batch_id': batch_id,
             'timestamp': datetime.now().isoformat(),
+            # Wall-clock for the full BERTopic modeling step (fit/merge/save/metadata/transform).
             'training_time_seconds': training_duration,
+            # Optional Ollama calls inside topic metadata extraction (not comparable to LDA/NMF fit).
+            'ollama_labeling_seconds': ollama_sec,
+            # Fair vs. lda/nmf ``training_time_seconds``: same batch, estimator path without LLM labeling.
+            'training_time_seconds_excl_ollama': train_excl_ollama,
         }
         save_bertopic_metrics_task(bertopic_metrics)
         logger.info(f"   Coherence: {bertopic_metrics['coherence_c_v']:.4f}")

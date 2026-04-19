@@ -7,7 +7,7 @@ It operates on TF-IDF features — a different paradigm from both:
   - NMF (this): TF-IDF matrix factorization (deterministic optimisation)
 """
 from prefect import task, get_run_logger
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 from pathlib import Path
 import time
@@ -32,6 +32,8 @@ for resource, path in [
         nltk.data.find(resource)
     except LookupError:
         nltk.download(path, quiet=True)
+
+from src.utils.metrics_paths import nmf_metrics_path, load_metrics_state_for_save
 
 
 # ── Preprocessing ──────────────────────────────────────────────────────────────
@@ -386,7 +388,7 @@ def extract_nmf_metadata_task(
 @task(name="save-nmf-metrics", retries=1)
 def save_nmf_metrics_task(
     metrics: Dict[str, Any],
-    output_path: str = "outputs/metrics/nmf_metrics.json",
+    output_path: Optional[str] = None,
 ) -> str:
     """
     Persist NMF metrics to disk. Appends per-batch records for temporal analysis.
@@ -397,22 +399,19 @@ def save_nmf_metrics_task(
 
     Args:
         metrics    : Metrics dict (must include 'batch_id').
-        output_path: File path.
+        output_path: File path (default: ``config.storage.metrics_dir`` / nmf_metrics.json).
 
     Returns:
         Absolute path of saved file.
     """
+    if output_path is None:
+        output_path = str(nmf_metrics_path())
+
     logger = get_run_logger()
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    data: Dict[str, Any] = {"batches": [], "latest": {}}
-    if Path(output_path).exists():
-        try:
-            with open(output_path) as f:
-                data = json.load(f)
-            data.setdefault("batches", [])
-        except Exception:
-            data = {"batches": [], "latest": {}}
+    data: Dict[str, Any] = load_metrics_state_for_save(output_path, "nmf_metrics.json")
+    data.setdefault("batches", [])
 
     batch_id = metrics.get("batch_id")
     batch_record = {
